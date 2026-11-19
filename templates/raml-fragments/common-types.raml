@@ -1,0 +1,10 @@
+#%RAML 1.0 Library
+types:
+  Error:
+    type: object
+    required: true
+    properties:
+      correlationId: string
+      errorCode: string
+      message: string
+      details?: array

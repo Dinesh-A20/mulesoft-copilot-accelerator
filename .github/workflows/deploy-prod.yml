@@ -1,0 +1,44 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_version:
+        description: "Approved immutable Maven artifact version"
+        required: true
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Re-run quality gates
+        run: mvn -B -ntp clean verify
+      - name: Deploy immutable artifact
+        env:
+          ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
+          ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+        run: |
+          mvn -B -ntp deploy \
+            -DmuleDeploy \
+            -Denv=prod \
+            -Dtarget=${{ vars.CLOUDHUB_TARGET }} \
+            -Drevision=${{ inputs.artifact_version }} \
+            -Danypoint.env=${{ vars.ANYPOINT_ENV }} \
+            -Danypoint.client.id="$ANYPOINT_CLIENT_ID" \
+            -Danypoint.client.secret="$ANYPOINT_CLIENT_SECRET"
+      - name: Smoke test
+        run: |
+          test -n "${{ vars.PROD_HEALTH_URL }}"
+          curl --fail --retry 5 --retry-delay 10 "${{ vars.PROD_HEALTH_URL }}"

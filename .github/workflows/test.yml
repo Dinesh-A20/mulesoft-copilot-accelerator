@@ -1,0 +1,32 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  munit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Run MUnit and coverage
+        run: mvn -B -ntp clean test
+      - name: Publish MUnit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: munit-reports
+          path: |
+            target/munit-reports
+            target/site/munit
+          if-no-files-found: warn

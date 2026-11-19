@@ -1,0 +1,39 @@
+name: Deploy QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_version:
+        description: "Immutable Maven artifact version"
+        required: true
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: qa
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Verify MUnit
+        run: mvn -B -ntp clean verify
+      - name: Deploy immutable artifact
+        env:
+          ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
+          ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+        run: |
+          mvn -B -ntp deploy \
+            -DmuleDeploy \
+            -Denv=qa \
+            -Dtarget=${{ vars.CLOUDHUB_TARGET }} \
+            -Drevision=${{ inputs.artifact_version }} \
+            -Danypoint.env=${{ vars.ANYPOINT_ENV }} \
+            -Danypoint.client.id="$ANYPOINT_CLIENT_ID" \
+            -Danypoint.client.secret="$ANYPOINT_CLIENT_SECRET"

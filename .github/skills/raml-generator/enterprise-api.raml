@@ -1,0 +1,18 @@
+#%RAML 1.0
+title: Enterprise API
+version: v1
+baseUri: https://api.example.com/v1
+protocols: [HTTPS]
+mediaType: application/json
+
+uses:
+  standard: fragments/standard-traits.raml
+  types: fragments/common-types.raml
+
+/health:
+  get:
+    is: [standard.health]
+    responses:
+      200:
+        body:
+          application/json:

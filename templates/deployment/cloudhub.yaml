@@ -1,0 +1,7 @@
+environment: dev
+runtimeVersion: 4.9.4:2e-java17
+replicas: 2
+replicaSize: mule.micro
+publicEndpoint: false
+tracingEnabled: true
+persistentObjectStore: false

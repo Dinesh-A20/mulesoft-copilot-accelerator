@@ -1,0 +1,8 @@
+environment: dev
+runtimeVersion: 4.9.4:2e-java17
+replicas: 2
+cpuReserved: "500m"
+cpuLimit: "1000m"
+memory: "1Gi"
+serviceExposure: private
+highAvailability: true

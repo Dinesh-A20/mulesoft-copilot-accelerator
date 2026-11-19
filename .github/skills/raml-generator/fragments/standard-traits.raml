@@ -1,0 +1,19 @@
+#%RAML 1.0 Library
+traits:
+  correlation:
+    headers:
+      X-Correlation-ID:
+        type: string
+        required: false
+  paginated:
+    queryParameters:
+      page:
+        type: integer
+        minimum: 1
+        default: 1
+      pageSize:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+  health:

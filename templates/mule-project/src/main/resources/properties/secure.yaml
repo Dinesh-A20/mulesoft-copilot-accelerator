@@ -1,0 +1,3 @@
+# Store encrypted values only. Example keys:
+# salesforce.secure.clientSecret: "![encrypted value]"
+# sf.secure.clientSecret: "![encrypted value]"
