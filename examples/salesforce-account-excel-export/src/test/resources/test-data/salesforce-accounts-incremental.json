@@ -1,0 +1,16 @@
+[
+  {
+    "Id": "001000000000001AAA",
+    "Name": "Northwind Demo Renamed",
+    "Phone": "+1-555-0199",
+    "BillingCity": "Portland",
+    "LastModifiedDate": "2026-11-21T08:00:00.000+0000"
+  },
+  {
+    "Id": "001000000000003AAA",
+    "Name": "Fabrikam Demo",
+    "Phone": "+1-555-0103",
+    "BillingCity": "Austin",
+    "LastModifiedDate": "2026-11-21T09:30:00.000+0000"
+  }
+]

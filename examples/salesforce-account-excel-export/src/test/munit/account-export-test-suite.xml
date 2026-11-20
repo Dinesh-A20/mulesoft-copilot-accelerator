@@ -1,0 +1,412 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns:sfdc="http://www.mulesoft.org/schema/mule/salesforce"
+      xmlns:file="http://www.mulesoft.org/schema/mule/file"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd
+        http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+        http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+        http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+
+    <munit:config name="account-export-test-suite"/>
+
+    <munit:test name="account-workbook-merge-updates-in-place-and-appends-new-ids">
+        <munit:execution>
+            <ee:transform>
+                <ee:variables>
+                    <ee:set-variable variableName="mergeResult"><![CDATA[%dw 2.0
+import mergeAccounts from dwl::AccountWorkbook
+output application/java
+---
+mergeAccounts(
+    {Accounts: [
+        {'Account Id': '001000000000001AAA', 'Account Name': 'Northwind Demo', Phone: '+1-555-0101', 'Billing City': 'Seattle'},
+        {'Account Id': '001000000000009AAA', 'Account Name': 'Manual Row', Phone: '', 'Billing City': ''},
+        {'Account Id': '', 'Account Name': '', Phone: '', 'Billing City': ''}
+    ]},
+    readUrl('classpath://test-data/salesforce-accounts-incremental.json', 'application/json'))]]></ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+            <ee:transform>
+                <ee:message>
+                    <ee:set-payload resource="dwl/accounts-to-xlsx.dwl"/>
+                </ee:message>
+            </ee:transform>
+            <set-variable variableName="workbook"
+                          value="#[read(payload as Binary, 'application/xlsx', {header: true})]"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.mergeResult.inserted]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.mergeResult.updated]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[vars.workbook.Accounts]"
+                                     is="#[MunitTools::equalTo([
+                                         {'Account Id': '001000000000001AAA', 'Account Name': 'Northwind Demo Renamed', Phone: '+1-555-0199', 'Billing City': 'Portland'},
+                                         {'Account Id': '001000000000009AAA', 'Account Name': 'Manual Row', Phone: '', 'Billing City': ''},
+                                         {'Account Id': '001000000000003AAA', 'Account Name': 'Fabrikam Demo', Phone: '+1-555-0103', 'Billing City': 'Austin'}
+                                     ])]"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="account-query-uses-keyset-watermark">
+        <munit:execution>
+            <set-variable variableName="incrementalQuery"
+                          value="#[dwl::AccountWorkbook::buildAccountQuery({lastModifiedDate: '2026-11-20T10:00:00.000+0000', id: '001000000000001AAA'})]"/>
+            <munit-tools:assert-that expression="#[vars.incrementalQuery]"
+                                     is="#[MunitTools::equalTo('SELECT Id, Name, Phone, BillingCity, LastModifiedDate FROM Account WHERE LastModifiedDate > 2026-11-20T10:00:00Z OR (LastModifiedDate = 2026-11-20T10:00:00Z AND Id > ''001000000000001AAA'') ORDER BY LastModifiedDate ASC, Id ASC LIMIT 50')]"/>
+            <munit-tools:assert-that expression="#[dwl::AccountWorkbook::buildAccountQuery(null)]"
+                                     is="#[MunitTools::endsWith('ORDER BY LastModifiedDate DESC, Id DESC LIMIT 50')]"/>
+        </munit:execution>
+    </munit:test>
+
+    <munit:test name="account-query-rejects-injected-watermark-id"
+                expectedErrorType="ANY">
+        <munit:execution>
+            <set-variable variableName="injected"
+                          value="#[dwl::AccountWorkbook::buildAccountQuery({lastModifiedDate: '2026-11-20T10:00:00Z', id: &quot;x' OR Name != '&quot;})]"/>
+        </munit:execution>
+    </munit:test>
+
+    <munit:test name="account-export-initial-load-when-workbook-missing">
+        <munit:behavior>
+            <munit-tools:mock-when processor="os:retrieve">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#['']" mediaType="text/plain"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:read">
+                <munit-tools:then-return>
+                    <munit-tools:error typeId="FILE:ILLEGAL_PATH"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="sfdc:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name"
+                                                 whereValue="#['Query changed Accounts']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[readUrl('classpath://test-data/salesforce-accounts.json')]" mediaType="application/json"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:write">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/octet-stream"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="os:store">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="account-export-process"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.status]" is="#[MunitTools::equalTo('completed')]"/>
+            <munit-tools:assert-that expression="#[payload.mode]" is="#[MunitTools::equalTo('initial')]"/>
+            <munit-tools:assert-that expression="#[payload.recordsExported]" is="#[MunitTools::equalTo(2)]"/>
+            <munit-tools:assert-that expression="#[payload.recordsInserted]" is="#[MunitTools::equalTo(2)]"/>
+            <munit-tools:assert-that expression="#[payload.totalRows]" is="#[MunitTools::equalTo(2)]"/>
+            <munit-tools:assert-that expression="#[payload.fileName]" is="#[MunitTools::equalTo('salesforceAccountRecords.xlsx')]"/>
+            <munit-tools:assert-that expression="#[payload.correlationId]" is="#[MunitTools::notNullValue()]"/>
+            <munit-tools:assert-that expression="#[vars.accountQuery]" is="#[MunitTools::endsWith('ORDER BY LastModifiedDate DESC, Id DESC LIMIT 50')]"/>
+            <munit-tools:assert-that expression="#[vars.nextWatermark]"
+                                     is="#[MunitTools::equalTo({lastModifiedDate: '2026-11-20T10:00:00Z', id: '001000000000001AAA'})]"/>
+            <munit-tools:verify-call processor="file:write" times="1">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="path"
+                                                 whereValue="#[MunitTools::equalTo('salesforceAccountRecords.xlsx')]"/>
+                </munit-tools:with-attributes>
+            </munit-tools:verify-call>
+            <munit-tools:verify-call processor="os:store" times="1"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="account-export-incremental-upserts-existing-workbook">
+        <munit:behavior>
+            <munit-tools:mock-when processor="os:retrieve">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#['{&quot;lastModifiedDate&quot;: &quot;2026-11-20T10:00:00Z&quot;, &quot;id&quot;: &quot;001000000000001AAA&quot;}']" mediaType="text/plain"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:read">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[write({Accounts: [{'Account Id': '001000000000001AAA', 'Account Name': 'Northwind Demo', Phone: '+1-555-0101', 'Billing City': 'Seattle'}, {'Account Id': '001000000000002AAA', 'Account Name': 'Contoso Demo', Phone: '', 'Billing City': ''}]}, 'application/xlsx')]" mediaType="application/xlsx"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="sfdc:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name"
+                                                 whereValue="#['Query changed Accounts']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[readUrl('classpath://test-data/salesforce-accounts-incremental.json')]" mediaType="application/json"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:write">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/octet-stream"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="os:store">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="account-export-process"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.mode]" is="#[MunitTools::equalTo('incremental')]"/>
+            <munit-tools:assert-that expression="#[payload.recordsInserted]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[payload.recordsUpdated]" is="#[MunitTools::equalTo(1)]"/>
+            <munit-tools:assert-that expression="#[payload.totalRows]" is="#[MunitTools::equalTo(3)]"/>
+            <munit-tools:assert-that expression="#[vars.accountQuery]" is="#[MunitTools::containsString('WHERE LastModifiedDate > 2026-11-20T10:00:00Z')]"/>
+            <munit-tools:assert-that expression="#[vars.mergeResult.rows.'Account Id']"
+                                     is="#[MunitTools::equalTo(['001000000000001AAA', '001000000000002AAA', '001000000000003AAA'])]"/>
+            <munit-tools:assert-that expression="#[vars.nextWatermark]"
+                                     is="#[MunitTools::equalTo({lastModifiedDate: '2026-11-21T09:30:00Z', id: '001000000000003AAA'})]"/>
+            <munit-tools:verify-call processor="os:store" times="1"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="account-export-no-changes-keeps-rows-and-watermark">
+        <munit:behavior>
+            <munit-tools:mock-when processor="os:retrieve">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#['{&quot;lastModifiedDate&quot;: &quot;2026-11-20T10:00:00Z&quot;, &quot;id&quot;: &quot;001000000000001AAA&quot;}']" mediaType="text/plain"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:read">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[write({Accounts: [{'Account Id': '001000000000001AAA', 'Account Name': 'Northwind Demo', Phone: '+1-555-0101', 'Billing City': 'Seattle'}, {'Account Id': '001000000000002AAA', 'Account Name': 'Contoso Demo', Phone: '', 'Billing City': ''}]}, 'application/xlsx')]" mediaType="application/xlsx"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="sfdc:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name"
+                                                 whereValue="#['Query changed Accounts']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[[]]" mediaType="application/json"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:write">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/octet-stream"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="os:store">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="account-export-process"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[payload.recordsExported]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[payload.recordsInserted]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[payload.recordsUpdated]" is="#[MunitTools::equalTo(0)]"/>
+            <munit-tools:assert-that expression="#[payload.totalRows]" is="#[MunitTools::equalTo(2)]"/>
+            <munit-tools:verify-call processor="os:store" times="0"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="account-export-write-failure-does-not-advance-watermark">
+        <munit:behavior>
+            <munit-tools:mock-when processor="os:retrieve">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#['{&quot;lastModifiedDate&quot;: &quot;2026-11-20T10:00:00Z&quot;, &quot;id&quot;: &quot;001000000000001AAA&quot;}']" mediaType="text/plain"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:read">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[write({Accounts: [{'Account Id': '001000000000001AAA', 'Account Name': 'Northwind Demo', Phone: '+1-555-0101', 'Billing City': 'Seattle'}, {'Account Id': '001000000000002AAA', 'Account Name': 'Contoso Demo', Phone: '', 'Billing City': ''}]}, 'application/xlsx')]" mediaType="application/xlsx"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="sfdc:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name"
+                                                 whereValue="#['Query changed Accounts']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[readUrl('classpath://test-data/salesforce-accounts-incremental.json')]" mediaType="application/json"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:write">
+                <munit-tools:then-return>
+                    <munit-tools:error typeId="FILE:ACCESS_DENIED"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="os:store">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="account-export-process"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]"
+                                     is="#[MunitTools::equalTo(500)]"/>
+            <munit-tools:assert-that expression="#[payload.error]"
+                                     is="#[MunitTools::equalTo('EXPORT_FAILED')]"/>
+            <munit-tools:assert-that expression="#[payload.message]"
+                                     is="#[MunitTools::equalTo('The Account export could not be completed.')]"/>
+            <munit-tools:verify-call processor="os:store" times="0"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="account-export-salesforce-timeout-returns-sanitized-error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="os:retrieve">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#['{&quot;lastModifiedDate&quot;: &quot;2026-11-20T10:00:00Z&quot;, &quot;id&quot;: &quot;001000000000001AAA&quot;}']" mediaType="text/plain"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:read">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[write({Accounts: [{'Account Id': '001000000000001AAA', 'Account Name': 'Northwind Demo', Phone: '+1-555-0101', 'Billing City': 'Seattle'}, {'Account Id': '001000000000002AAA', 'Account Name': 'Contoso Demo', Phone: '', 'Billing City': ''}]}, 'application/xlsx')]" mediaType="application/xlsx"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="sfdc:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name"
+                                                 whereValue="#['Query changed Accounts']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:error typeId="SALESFORCE:TIMEOUT"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:write">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/octet-stream"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="os:store">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="account-export-process"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]"
+                                     is="#[MunitTools::equalTo(500)]"/>
+            <munit-tools:assert-that expression="#[payload.error]"
+                                     is="#[MunitTools::equalTo('EXPORT_FAILED')]"/>
+            <munit-tools:assert-that expression="#[payload.message]"
+                                     is="#[MunitTools::equalTo('The Account export could not be completed.')]"/>
+            <munit-tools:verify-call processor="os:store" times="0"/>
+            <munit-tools:verify-call processor="file:write" times="0"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="account-export-salesforce-connectivity-failure-does-not-write-file">
+        <munit:behavior>
+            <munit-tools:mock-when processor="os:retrieve">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#['{&quot;lastModifiedDate&quot;: &quot;2026-11-20T10:00:00Z&quot;, &quot;id&quot;: &quot;001000000000001AAA&quot;}']" mediaType="text/plain"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:read">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[write({Accounts: [{'Account Id': '001000000000001AAA', 'Account Name': 'Northwind Demo', Phone: '+1-555-0101', 'Billing City': 'Seattle'}, {'Account Id': '001000000000002AAA', 'Account Name': 'Contoso Demo', Phone: '', 'Billing City': ''}]}, 'application/xlsx')]" mediaType="application/xlsx"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="sfdc:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name"
+                                                 whereValue="#['Query changed Accounts']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:error typeId="SALESFORCE:CONNECTIVITY"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:write">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/octet-stream"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="os:store">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="account-export-process"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]"
+                                     is="#[MunitTools::equalTo(500)]"/>
+            <munit-tools:assert-that expression="#[payload.error]"
+                                     is="#[MunitTools::equalTo('EXPORT_FAILED')]"/>
+            <munit-tools:assert-that expression="#[payload.message]"
+                                     is="#[MunitTools::equalTo('The Account export could not be completed.')]"/>
+            <munit-tools:verify-call processor="os:store" times="0"/>
+            <munit-tools:verify-call processor="file:write" times="0"/>
+        </munit:validation>
+    </munit:test>
+
+    <munit:test name="account-export-invalid-salesforce-response-returns-sanitized-error">
+        <munit:behavior>
+            <munit-tools:mock-when processor="os:retrieve">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#['{&quot;lastModifiedDate&quot;: &quot;2026-11-20T10:00:00Z&quot;, &quot;id&quot;: &quot;001000000000001AAA&quot;}']" mediaType="text/plain"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:read">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[write({Accounts: [{'Account Id': '001000000000001AAA', 'Account Name': 'Northwind Demo', Phone: '+1-555-0101', 'Billing City': 'Seattle'}, {'Account Id': '001000000000002AAA', 'Account Name': 'Contoso Demo', Phone: '', 'Billing City': ''}]}, 'application/xlsx')]" mediaType="application/xlsx"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="sfdc:query">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute attributeName="doc:name"
+                                                 whereValue="#['Query changed Accounts']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[{unexpected: []}]" mediaType="application/json"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="file:write">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]" mediaType="application/octet-stream"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+            <munit-tools:mock-when processor="os:store">
+                <munit-tools:then-return>
+                    <munit-tools:payload value="#[payload]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+        <munit:execution>
+            <flow-ref name="account-export-process"/>
+        </munit:execution>
+        <munit:validation>
+            <munit-tools:assert-that expression="#[vars.httpStatus]"
+                                     is="#[MunitTools::equalTo(500)]"/>
+            <munit-tools:assert-that expression="#[payload.error]"
+                                     is="#[MunitTools::equalTo('EXPORT_FAILED')]"/>
+            <munit-tools:assert-that expression="#[payload.message]"
+                                     is="#[MunitTools::equalTo('The Account export could not be completed.')]"/>
+            <munit-tools:verify-call processor="os:store" times="0"/>
+            <munit-tools:verify-call processor="file:write" times="0"/>
+        </munit:validation>
+    </munit:test>
+</mule>

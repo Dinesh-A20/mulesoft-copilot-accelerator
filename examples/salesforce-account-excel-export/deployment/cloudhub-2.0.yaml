@@ -1,0 +1,42 @@
+# Reviewable CloudHub 2.0 deployment input template, not a directly executable manifest.
+# Bind placeholders using the organization's approved Mule Maven Plugin / Runtime Manager
+# deployment configuration. Do not commit environment values or secrets here.
+target: cloudhub-2.0
+applicationName: ${CH2_APPLICATION_NAME}
+environment: ${ANYPOINT_ENVIRONMENT}
+runtime:
+  version: 4.13.0:2e-java17
+  replicas: 1
+  replicaSize: mule.micro
+  publicEndpoint: false
+  tracingEnabled: true
+applicationProperties:
+  app.environment: ${ANYPOINT_ENVIRONMENT}
+  http.listener.host: 0.0.0.0
+  http.listener.port: "8081"
+  salesforce.jwt.principal: ${SALESFORCE_PRINCIPAL}
+  salesforce.jwt.keystore.path: ${SALESFORCE_JWT_KEYSTORE_PATH}
+  salesforce.jwt.certificate-alias: ${SALESFORCE_JWT_CERTIFICATE_ALIAS}
+  salesforce.jwt.token-endpoint: ${SALESFORCE_TOKEN_ENDPOINT}
+  salesforce.api.version: "61.0"
+  salesforce.http.response-timeout-ms: "30000"
+  export.output.directory: ${APPROVED_OUTPUT_DIRECTORY}
+  export.output.file-name: salesforceAccountRecords.xlsx
+  export.watermark.key: account-export-watermark
+secureApplicationProperties:
+  salesforce.secure.jwt.consumer-key: ${SALESFORCE_JWT_CONSUMER_KEY}
+  salesforce.secure.jwt.keystore-password: ${SALESFORCE_JWT_KEYSTORE_PASSWORD}
+ingress:
+  # Apply the Anypoint API Manager Client ID Enforcement policy before enabling ingress.
+  # Private endpoint only; API Manager policy and approved network access are release gates.
+  authenticationPolicy: client-id-enforcement-required
+  publicAccess: false
+operations:
+  # One replica is intentional: the workbook (read-merge-rewrite) and the Object Store watermark are per-instance state.
+  # Local CloudHub container storage is ephemeral; use only with an approved mounted /
+  # externally durable output location. Confirm that the target supports that location.
+  rollbackArtifact: previous-verified-artifact
+  postDeploymentVerification:
+    - verify-runtime-started-state
+    - run-protected-smoke-test
+    - verify-file-output-and-monitoring

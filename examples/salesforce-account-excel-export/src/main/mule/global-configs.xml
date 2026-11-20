@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:file="http://www.mulesoft.org/schema/mule/file"
+      xmlns:sfdc="http://www.mulesoft.org/schema/mule/salesforce"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os" xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+        http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+
+    <configuration-properties file="config.yaml"/>
+
+    <http:listener-config name="Account_Export_Listener">
+        <http:listener-connection host="${http.listener.host}" port="${http.listener.port}"/>
+    </http:listener-config>
+
+    <sfdc:sfdc-config name="Salesforce_Config"
+                       readTimeout="${salesforce.http.response-timeout-ms}"
+                       readTimeoutUnit="MILLISECONDS">
+        <salesforce:jwt-connection consumerKey="${salesforce.jwt.consumerkey}" keyStore="${salesforce.jwt.keystore}" storePassword="${salesforce.jwt.storePassword}" certificateAlias="${salesforce.jwt.certificateAlias}" principal="${salesforce.jwt.principal}" tokenEndpoint="${salesforce.jwt.tokenEndpoint}" />
+    </sfdc:sfdc-config>
+
+    <file:config name="Account_Export_File">
+        <file:connection workingDir="${export.output.directory}"/>
+    </file:config>
+
+    <os:object-store name="Account_Export_Watermark_Store" persistent="true"/>
+</mule>

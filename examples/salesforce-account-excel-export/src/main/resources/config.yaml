@@ -1,0 +1,27 @@
+app:
+  environment: "local"
+
+http:
+  listener:
+    host: "127.0.0.1"
+    port: "8081"
+
+salesforce:
+  jwt:
+    principal: "dinesh18msc.170b0fd9ff01@agentforce.com"
+    consumerkey: "3MVG9HtWXcDGV.nH3ogZv0e85dhVacgFQERN3y.uirs2A5BMB__8cMZ0mlu0cJMtH7VyU7PCR9s22oPNvkXfq"
+    storePassword: "123456"
+    keystore: "00Dfj00000gYMvZ.jks"
+    certificateAlias: "mule_jwt_certs"
+    tokenEndpoint: "https://login.salesforce.com/services/oauth2/token"
+  api:
+    version: "61.0"
+  http:
+    response-timeout-ms: "30000"
+
+export:
+  output:
+    directory: 'C:\mule'
+    file-name: "salesforceAccountRecords.xlsx"
+  watermark:
+    key: "account-export-watermark"

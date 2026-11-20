@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:file="http://www.mulesoft.org/schema/mule/file"
+      xmlns:sfdc="http://www.mulesoft.org/schema/mule/salesforce"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+        http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+        http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+        http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+
+    <apikit:config name="account-export-api-config"
+                   api="api/account-export.raml"
+                   outboundHeadersMapName="outboundHeaders"
+                   httpStatusVarName="httpStatus"/>
+
+    <flow name="account-export-api-main" maxConcurrency="1">
+        <http:listener config-ref="Account_Export_Listener"
+                       path="/api/*"
+                       allowedMethods="POST"
+                       doc:name="Manual API trigger"/>
+        <apikit:router config-ref="account-export-api-config"/>
+    </flow>
+
+    <flow name="post:\v1\exports\accounts:account-export-api-config">
+        <flow-ref name="account-export-process"/>
+    </flow>
+
+    <flow name="account-export-process" doc:description="Incrementally upserts changed Salesforce Accounts into the configured XLSX workbook.">
+        <set-variable variableName="startedAtMillis"
+                      value="#[now() as Number {unit: 'milliseconds'}]"/>
+        <set-variable variableName="exportCorrelationId"
+                      value="#[do { var incoming = attributes.headers.'x-correlation-id' default correlationId --- if ((incoming as String) matches /^[A-Za-z0-9._-]{1,128}$/) incoming else correlationId }]"/>
+        <set-variable variableName="exportFileName"
+                      value="#[p('export.output.file-name')]"/>
+        <logger level="INFO"
+                message="#[write({correlationId: vars.exportCorrelationId, applicationName: 'salesforce-account-excel-export', environment: p('app.environment') default 'local', flowName: 'account-export-process', source: 'manual-api', status: 'started'}, 'application/json')]" doc:name="initialLogger"/>
+
+        <os:retrieve key="${export.watermark.key}"
+                     objectStore="Account_Export_Watermark_Store"
+                     target="storedWatermark"
+                     doc:name="Retrieve export watermark">
+            <os:default-value><![CDATA[#['']]]></os:default-value>
+        </os:retrieve>
+
+        <try doc:name="Read existing workbook">
+            <file:read config-ref="Account_Export_File"
+                       path="#[vars.exportFileName]"
+                       outputMimeType="application/xlsx"
+                       doc:name="Read existing XLSX workbook"/>
+            <!-- Materialize the workbook so the file handle is released before it is rewritten. -->
+            <ee:transform doc:name="Capture existing workbook">
+                <ee:variables>
+                    <ee:set-variable variableName="existingWorkbook"><![CDATA[%dw 2.0
+output application/java
+---
+{Accounts: payload.Accounts default []}]]></ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+            <error-handler>
+                <on-error-continue type="FILE:ILLEGAL_PATH" logException="false">
+                    <set-variable variableName="existingWorkbook" value="#[{Accounts: []}]"/>
+                </on-error-continue>
+            </error-handler>
+        </try>
+
+        <ee:transform doc:name="Build Account query">
+            <ee:variables>
+                <ee:set-variable variableName="watermark"><![CDATA[%dw 2.0
+import effectiveWatermark from dwl::AccountWorkbook
+output application/java
+---
+effectiveWatermark(vars.existingWorkbook, vars.storedWatermark)]]></ee:set-variable>
+                <ee:set-variable variableName="accountQuery"><![CDATA[%dw 2.0
+import effectiveWatermark, buildAccountQuery from dwl::AccountWorkbook
+output text/plain
+---
+buildAccountQuery(effectiveWatermark(vars.existingWorkbook, vars.storedWatermark))]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <sfdc:query config-ref="Salesforce_Config" target="salesforceAccounts" doc:name="Query changed Accounts">
+            <sfdc:salesforce-query><![CDATA[#[vars.accountQuery]]]></sfdc:salesforce-query>
+        </sfdc:query>
+
+        <set-variable variableName="recordCount"
+                      value="#[if (vars.salesforceAccounts is Array) sizeOf(vars.salesforceAccounts) else dw::Runtime::fail('Salesforce query did not return an Account array')]"/>
+
+        <ee:transform doc:name="Merge Accounts into workbook">
+            <ee:variables>
+                <ee:set-variable variableName="mergeResult"><![CDATA[%dw 2.0
+import mergeAccounts from dwl::AccountWorkbook
+output application/java
+---
+mergeAccounts(vars.existingWorkbook, vars.salesforceAccounts)]]></ee:set-variable>
+                <ee:set-variable variableName="nextWatermark"><![CDATA[%dw 2.0
+import nextWatermark from dwl::AccountWorkbook
+output application/java
+---
+nextWatermark(vars.salesforceAccounts, vars.watermark)]]></ee:set-variable>
+            </ee:variables>
+        </ee:transform>
+
+        <ee:transform doc:name="Map Accounts to XLSX">
+            <ee:message>
+                <ee:set-payload resource="dwl/accounts-to-xlsx.dwl"/>
+            </ee:message>
+        </ee:transform>
+
+        <file:write config-ref="Account_Export_File"
+                    path="#[vars.exportFileName]"
+                    mode="OVERWRITE"
+                    doc:name="Write XLSX export"/>
+
+        <!-- Commit the watermark only after the workbook write succeeds (at-least-once). -->
+        <choice doc:name="Watermark advanced?">
+            <when expression="#[vars.nextWatermark != null and vars.nextWatermark != vars.watermark]">
+                <os:store key="${export.watermark.key}"
+                          objectStore="Account_Export_Watermark_Store"
+                          doc:name="Store export watermark">
+                    <os:value><![CDATA[#[write(vars.nextWatermark, 'application/json')]]]></os:value>
+                </os:store>
+            </when>
+        </choice>
+
+        <logger level="INFO"
+                message="#[write({correlationId: vars.exportCorrelationId, applicationName: 'salesforce-account-excel-export', environment: p('app.environment') default 'local', flowName: 'account-export-process', source: 'manual-api', status: 'completed', mode: if (vars.watermark == null) 'initial' else 'incremental', recordsExported: vars.recordCount, recordsInserted: vars.mergeResult.inserted, recordsUpdated: vars.mergeResult.updated, totalRows: sizeOf(vars.mergeResult.rows), fileName: vars.exportFileName, durationMs: (now() as Number {unit: 'milliseconds'}) - vars.startedAtMillis}, 'application/json')]"/>
+
+        <ee:transform doc:name="Build export response">
+            <ee:message>
+                <ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+    status: "completed",
+    mode: if (vars.watermark == null) "initial" else "incremental",
+    recordsExported: vars.recordCount,
+    recordsInserted: vars.mergeResult.inserted,
+    recordsUpdated: vars.mergeResult.updated,
+    totalRows: sizeOf(vars.mergeResult.rows),
+    fileName: vars.exportFileName,
+    correlationId: vars.exportCorrelationId
+}]]></ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        <error-handler>
+            <on-error-continue type="ANY" logException="false">
+                <logger level="ERROR"
+                        message="#[write({correlationId: vars.exportCorrelationId default correlationId, applicationName: 'salesforce-account-excel-export', environment: p('app.environment') default 'local', flowName: 'account-export-process', source: 'manual-api', status: 'failed', errorType: error.errorType.namespace ++ ':' ++ error.errorType.identifier, durationMs: (now() as Number {unit: 'milliseconds'}) - (vars.startedAtMillis default (now() as Number {unit: 'milliseconds'}))}, 'application/json')]"/>
+                <set-variable variableName="httpStatus" value="#[500]"/>
+                <set-payload value="#[{error: 'EXPORT_FAILED', message: 'The Account export could not be completed.', correlationId: vars.exportCorrelationId default correlationId}]"
+                             mimeType="application/json"/>
+            </on-error-continue>
+        </error-handler>
+    </flow>
+
+</mule>

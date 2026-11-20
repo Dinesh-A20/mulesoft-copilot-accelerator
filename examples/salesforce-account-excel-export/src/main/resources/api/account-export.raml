@@ -1,0 +1,103 @@
+#%RAML 1.0
+title: Salesforce Account Excel Export
+version: v1
+baseUri: http://localhost:8081/api
+mediaType: application/json
+protocols: [ HTTP, HTTPS ]
+
+securitySchemes:
+  client-id-enforcement:
+    description: Apply the Anypoint API Manager Client ID Enforcement policy at the ingress gateway.
+    type: x-custom
+    describedBy:
+      headers:
+        client_id:
+          type: string
+          required: true
+        client_secret:
+          type: string
+          required: true
+      responses:
+        401:
+          description: Missing or invalid client credentials.
+        403:
+          description: Client is not authorized to invoke the export.
+
+types:
+  ExportResult:
+    type: object
+    additionalProperties: false
+    properties:
+      status:
+        type: string
+        enum: [ completed ]
+      mode:
+        type: string
+        enum: [ initial, incremental ]
+        description: initial = workbook missing or empty, latest 50 Accounts loaded; incremental = Accounts changed since the stored watermark.
+      recordsExported:
+        type: integer
+        minimum: 0
+        maximum: 50
+        description: Accounts fetched from Salesforce in this run.
+      recordsInserted:
+        type: integer
+        minimum: 0
+        maximum: 50
+      recordsUpdated:
+        type: integer
+        minimum: 0
+        maximum: 50
+      totalRows:
+        type: integer
+        minimum: 0
+        description: Account rows in the workbook after the upsert.
+      fileName:
+        type: string
+      correlationId:
+        type: string
+  Error:
+    type: object
+    additionalProperties: false
+    properties:
+      error:
+        type: string
+      message:
+        type: string
+      correlationId:
+        type: string
+
+/v1/exports/accounts:
+  post:
+    description: On-demand synchronous upsert of Salesforce Accounts into the XLSX workbook. The first run (or a missing/empty workbook) loads the latest 50 Accounts; later runs fetch up to 50 Accounts modified since the last successful run, update matching rows by Account Id in place, and append new Accounts at the end.
+    securedBy: [ client-id-enforcement ]
+    headers:
+      x-correlation-id?:
+        type: string
+        maxLength: 128
+    responses:
+      200:
+        body:
+          application/json:
+            type: ExportResult
+            example:
+              status: completed
+              mode: incremental
+              recordsExported: 3
+              recordsInserted: 1
+              recordsUpdated: 2
+              totalRows: 51
+              fileName: salesforceAccountRecords.xlsx
+              correlationId: example-correlation-id
+      401:
+        description: Missing or invalid client credentials.
+      403:
+        description: Client is not authorized to invoke the export.
+      500:
+        body:
+          application/json:
+            type: Error
+            example:
+              error: EXPORT_FAILED
+              message: The Account export could not be completed.
+              correlationId: example-correlation-id
