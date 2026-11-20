@@ -4,7 +4,7 @@ Project Name:
 Salesforce Excel Export
 
 Business Objective:
-Export the latest 50 Salesforce Account records into an Excel file.
+Keep an Excel file in sync with Salesforce Account records: initial load of the latest 50, then incremental upsert of changed Accounts on each trigger.
 
 Source System:
 Salesforce
@@ -22,16 +22,17 @@ Schedule:
 On Demand (manual trigger for initial version)
 
 Volume:
-50 records per execution
+Up to 50 records per execution
 
 Deployment:
 CloudHub 2.0
 
 Requirements:
 
-- Retrieve latest 50 Account records
-- Sort by LastModifiedDate descending
-- Generate Excel file
+- Initial load (missing or empty workbook): retrieve latest 50 Account records sorted by LastModifiedDate descending
+- Incremental runs: retrieve up to 50 Accounts modified since the last successful run (watermark in persistent Object Store, committed after the file write)
+- Upsert into the existing Excel file by Account Id: update changed rows in place, append new Accounts at the end, keep other rows
+- Generate Excel file (read-merge-rewrite; XLSX cannot be appended in place)
 - Store file locally or in configured output location
 - Include Account Id
 - Include Account Name
