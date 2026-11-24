@@ -16,6 +16,8 @@ MUnit suites, mocks, assertions, fixtures, test data, coverage, and CI test beha
 - Use test resources separate from runtime resources.
 - Enforce coverage thresholds in CI.
 - Never access production systems from tests.
+- For new or modified flows, test the [mandatory modular layout's](./mulesoft.instructions.md#mandatory-modular-project-layout) orchestration path through the real business modules, without mocking internal `flow-ref` calls in that integration test. Verify the requested APIKit route delegates to its business flow without invoking unrelated operations; external systems remain mocked.
+- After splitting XML files, run the Mule build and affected MUnit regressions to verify configuration loading, cross-file references, APIKit dispatch, response contracts, side effects, and error propagation are preserved.
 
 ## Naming Conventions
 - Suites: `<flow-or-config>-test-suite.xml`.
@@ -44,3 +46,4 @@ MUnit suites, mocks, assertions, fixtures, test data, coverage, and CI test beha
 - [ ] Retry and timeout behavior are tested.
 - [ ] Test data is sanitized.
 - [ ] Coverage gate is enabled.
+- [ ] Modular orchestration and referenced business files are exercised together, not only as isolated flow tests.

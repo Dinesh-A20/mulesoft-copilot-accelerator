@@ -17,6 +17,8 @@ description: Generates normalized Mule error handling, retries, circuit breakers
 4. Configure timeouts, retries, circuit breakers, and DLQ/replay.
 5. Add correlation, logging, metrics, and alert tags.
 6. Generate MUnit negative and timeout scenarios.
+7. Model expected missing-record outcomes separately from connector failures. For Object Store lookups, use an explicit absence default or narrowly handle `OS:KEY_NOT_FOUND` without exception-stack logging; emit a structured INFO business event and return the approved contract. Never treat store unavailability, timeouts, or permission failures as absent data.
+8. Follow the [mandatory modular layout](../../instructions/mulesoft.instructions.md#mandatory-modular-project-layout): keep named reusable handlers in `common-error-handlers.xml` and group shared error/logging subflows in dedicated capability files, separate from connector configurations and business implementations.
 
 ## Expected Outputs
 - Error subflows
@@ -30,3 +32,6 @@ description: Generates normalized Mule error handling, retries, circuit breakers
 - Every retryable operation has bounded retry policy.
 - Dead-lettered records retain replay metadata.
 - Each error response uses correlation ID.
+- Missing data is not automatically an implementation defect. HTTP status and message follow the approved contract; do not silently replace an existing 404 contract with 200 or mask genuine infrastructure failures.
+- Tests distinguish missing records from unavailable storage and verify that present records retain their original response.
+- Modular extraction preserves local error scope, `on-error-continue`/`on-error-propagate` behavior, and transaction boundaries. Named handlers use error-handler references; `flow-ref` is reserved for flows/subflows.
