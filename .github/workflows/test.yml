@@ -14,19 +14,69 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Select Mule project
+        id: project
+        env:
+          MULE_PROJECT_DIR: ${{ vars.MULE_PROJECT_DIR }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$MULE_PROJECT_DIR" || ! "$MULE_PROJECT_DIR" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+            echo "::error::Set MULE_PROJECT_DIR to a relative Mule project directory."
+            exit 1
+          fi
+          project="$(realpath -e -- "$GITHUB_WORKSPACE/$MULE_PROJECT_DIR")"
+          if [[ "$project" != "$GITHUB_WORKSPACE" && "$project" != "$GITHUB_WORKSPACE/"* ]] || [[ ! -f "$project/pom.xml" ]]; then
+            echo "::error::MULE_PROJECT_DIR must select a project with pom.xml inside the checkout."
+            exit 1
+          fi
+          echo "dir=$project" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
           cache: maven
+      - name: Install Maven 3.9.7
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/apache-maven-3.9.7-bin.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 \
+            'https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/3.9.7/apache-maven-3.9.7-bin.tar.gz' \
+            --output "$archive"
+          echo "f64913f89756264f2686e241f3f4486eca5d0dfdbb97077b0efc389cad376053824d58caa35c39648453ca58639f85335f9be9c8f217bfdb0c2d5ff2a9428fac  $archive" | sha512sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/apache-maven-3.9.7/bin" >> "$GITHUB_PATH"
+      - name: Configure Maven settings
+        env:
+          MULE_MAVEN_SETTINGS: ${{ secrets.MULE_MAVEN_SETTINGS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$MULE_MAVEN_SETTINGS" ]]; then
+            echo "::error::Configure the MULE_MAVEN_SETTINGS secret for the authorized Mule Enterprise repository."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$MULE_MAVEN_SETTINGS" > "$RUNNER_TEMP/mule-maven-settings.xml"
       - name: Run MUnit and coverage
-        run: mvn -B -ntp clean test
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: mvn -B -ntp --settings "$RUNNER_TEMP/mule-maven-settings.xml" clean test
+      - name: Verify MUnit reports
+        run: |
+          python scripts/check_munit_reports.py \
+            "${{ steps.project.outputs.dir }}/target/munit-reports" \
+            "${{ steps.project.outputs.dir }}/target/site/munit/coverage/munit-coverage.json"
       - name: Publish MUnit reports
-        if: always()
+        if: always() && steps.project.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: munit-reports
           path: |
-            target/munit-reports
-            target/site/munit
+            ${{ steps.project.outputs.dir }}/target/munit-reports
+            ${{ steps.project.outputs.dir }}/target/site/munit
           if-no-files-found: warn
+      - name: Remove Maven settings
+        if: always()
+        shell: bash
+        run: rm -f -- "$RUNNER_TEMP/mule-maven-settings.xml"

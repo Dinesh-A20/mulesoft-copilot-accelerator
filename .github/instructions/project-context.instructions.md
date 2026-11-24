@@ -1,5 +1,9 @@
 # Project Context
 
+This is the Salesforce Excel Export project's context, not a generic default.
+Read it explicitly only when this project is selected. For another project,
+read its own context and use the generic template without overwriting this one.
+
 Project Name:
 Salesforce Excel Export
 

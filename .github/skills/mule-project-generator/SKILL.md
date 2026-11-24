@@ -10,13 +10,14 @@ description: Scaffolds Maven Mule 4 projects with modular flows, global configs,
 - Existing project structure must align to enterprise accelerator conventions.
 
 ## Workflow Steps
-1. Derive artifact ID, domain, layer, API version, and runtime requirements.
-2. Generate Maven project and mule-artifact metadata.
-3. Scaffold global configs, main flow, process subflows, and error subflows.
-4. Add secure/environment properties and APIKit routes.
-5. Add connector dependencies and policy configuration placeholders.
-6. Generate build scripts and project documentation.
-7. Validate generated Mule XML against the pinned connector schemas and compile with the project's Mule Maven Plugin before declaring the project complete.
+1. Identify whether the task scaffolds a new application or modifies an existing one; invoke existing-project-analyzer and preserve its baseline for changes.
+2. Derive artifact ID, domain, layer, API version, and runtime requirements.
+3. Before generating XML, map entry points, orchestration, processing responsibilities, side effects, and error boundaries to a shallow graph of named flows and subflows.
+4. Generate Maven project and mule-artifact metadata for a new application; avoid re-scaffolding existing projects.
+5. Keep entry flows focused on receiving and delegating; group related process flows or subflows into modular XML, shared configs separately, and reusable mappings in DWL. Use regular flows where independent error handling is needed.
+6. Add secure/environment properties, APIKit routes, connector dependencies, and policy configuration placeholders.
+7. Generate build scripts and project documentation.
+8. Validate generated Mule XML against pinned connector schemas and compile with the project's Mule Maven Plugin before declaring the project complete.
 
 ## Expected Outputs
 - Complete Maven project structure
@@ -29,6 +30,8 @@ description: Scaffolds Maven Mule 4 projects with modular flows, global configs,
 - Project builds on supported Mule and JDK versions.
 - No credential or environment hostname is hardcoded.
 - Flow references resolve; connector configs exist.
+- Document component inputs, outputs, variables, errors, and side effects; avoid excessive flow-ref chains or a subflow for every trivial operation.
+- When refactoring, preserve contracts, event state, error handling, transaction and concurrency boundaries, and side-effect order; verify with regression tests.
 - Public contracts map to APIKit routes.
 - APIKit resource flow names use its generated backslash path convention, such as `post:\v1\orders:api-config`, and contain no forward slashes or other invalid flow-name characters.
 - Use only attributes supported by the pinned APIKit and connector schemas; each connector config has exactly one connection definition.

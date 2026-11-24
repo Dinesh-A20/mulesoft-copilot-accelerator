@@ -18,6 +18,8 @@ description: Generates MUnit suites for success, failure, timeout, edge, retry, 
 5. For file output, mock writes and assert the configured target filename/path and write mode match the API response.
 6. Add coverage and reports.
 7. Integrate tests with Maven.
+8. Identify the selected project and its Mule, Maven, Java, and MUnit versions. Run focused tests first and then the relevant suite from its `pom.xml` when safe and feasible.
+9. Inspect MUnit reports and test counts. Record command, versions, passed/failed/blocked status, existing failures, and blockers; do not count skipped tests or an absent report as a pass. Route failures through mule-troubleshooter.
 
 ## Expected Outputs
 - MUnit test suite XML
@@ -36,6 +38,9 @@ description: Generates MUnit suites for success, failure, timeout, edge, retry, 
 - For read-merge-rewrite exports, mock `file:read` with a real serialized fixture (for example `write({Accounts: [...]}, 'application/xlsx')`) and `FILE:ILLEGAL_PATH` for the missing-file path; mock `os:retrieve`/`os:store` and cover initial load, update-in-place, append, no-change, and write-failure-does-not-store-watermark cases.
 - Do not combine success assertions with `expectedErrorType` in one test; a failing assertion would satisfy the expected error.
 - Coverage threshold is explicit.
+- MUnit coverage requires an authorized Enterprise runtime; do not treat a successful Community-runtime run without coverage as satisfying the coverage gate.
+- Test the end-to-end entry flow and meaningful processing components, including errors and side-effect ordering; preserve existing tests during refactoring.
+- Verify tests do not start external listeners or reach external systems unless explicitly isolated and authorized.
 
 ## Supporting Artifacts
 - Use `templates/munit/test-suite-template.xml`.

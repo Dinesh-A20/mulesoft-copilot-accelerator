@@ -18,6 +18,9 @@ Maven projects, Mule configurations, flows, connectors, configuration properties
 - Use standard named global configurations.
 - Include correlation ID propagation and structured logging.
 - Catch and normalize all known and unknown errors.
+- Decompose meaningful processing responsibilities before generation: keep entry flows focused on receiving and delegating, group related processing in modular flows or subflows, and resolve all references.
+- Use regular flows when independent error handling or processing boundaries are needed; a subflow does not have its own error handler. Do not split trivial operations solely to increase file or subflow counts.
+- Preserve payloads, variables, contracts, error propagation, transaction and concurrency boundaries, and side-effect order when changing existing flows.
 
 ## Naming Conventions
 - Applications: lowercase kebab-case.

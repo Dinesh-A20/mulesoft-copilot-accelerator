@@ -12,6 +12,7 @@ description: Produces enterprise integration decomposition, interaction patterns
 
 ## Workflow Steps
 1. Extract actors, systems, business transactions, payloads, volumes, and SLAs.
+   Consume the selected project context and traceability matrix; record missing NFRs and unresolved decisions rather than inventing them.
 2. Identify authoritative systems and ownership boundaries.
 3. Select request-response, event, batch, streaming, or callback interactions.
 4. Define message, file, API, database, and connector endpoints.

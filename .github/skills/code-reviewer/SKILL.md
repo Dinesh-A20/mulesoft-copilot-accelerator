@@ -18,6 +18,7 @@ description: Reviews Mule XML, DataWeave, RAML, Maven, tests, and CI for enterpr
 5. Validate Maven coordinates/dependencies and run the configured build on the supported Mule/JDK versions.
 6. Check that configured output path, written filename, and response contract agree.
 7. Produce findings ranked by risk.
+8. Check requirement traceability, focused change impact, baseline evidence, modular entry/process boundaries, shallow flow-ref graphs, and resolved references.
 
 ## Expected Outputs
 - Review findings
@@ -29,6 +30,7 @@ description: Reviews Mule XML, DataWeave, RAML, Maven, tests, and CI for enterpr
 - Findings reference exact files and behavior.
 - No unrelated changes are included.
 - High-risk security or data-loss issues block merge.
+- Report changed transaction, concurrency, error, payload, variable, and side-effect semantics; distinguish pre-existing failures from introduced failures.
 - A build is not reported as passing unless the Maven validation completes successfully; distinguish IDE diagnostics and warnings from build failures.
 - APIkit flow names and connector config elements match the exact DSL supported by the pinned dependency versions.
 - File Connector destinations are filesystem paths; they are not HTTP/Google Sheets URLs.

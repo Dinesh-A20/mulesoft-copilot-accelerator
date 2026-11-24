@@ -16,6 +16,8 @@ MUnit suites, mocks, assertions, fixtures, test data, coverage, and CI test beha
 - Use test resources separate from runtime resources.
 - Enforce coverage thresholds in CI.
 - Never access production systems from tests.
+- Run tests against the selected project's `pom.xml`; record actual test counts, reports, commands, and passed, failed, or blocked status. Skipped tests or missing reports are not a pass.
+- Verify end-to-end flow behavior and meaningful processing components, including error paths and ordered side effects.
 
 ## Naming Conventions
 - Suites: `<flow-or-config>-test-suite.xml`.

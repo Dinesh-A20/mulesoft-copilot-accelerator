@@ -12,8 +12,29 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <mule.version>4.9.4</mule.version>
-    <mule.maven.plugin.version>4.6.2</mule.maven.plugin.version>
+    <app.runtime>${mule.version}</app.runtime>
+    <mule.maven.plugin.version>4.10.3</mule.maven.plugin.version>
+    <munit.version>3.4.0</munit.version>
+    <munit.runtime.product>MULE_EE</munit.runtime.product>
+    <munit.coverage.required>80</munit.coverage.required>
   </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>com.mulesoft.munit</groupId>
+      <artifactId>munit-runner</artifactId>
+      <version>${munit.version}</version>
+      <classifier>mule-plugin</classifier>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.mulesoft.munit</groupId>
+      <artifactId>munit-tools</artifactId>
+      <version>${munit.version}</version>
+      <classifier>mule-plugin</classifier>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
 
   <build>
     <plugins>
@@ -23,6 +44,47 @@
         <version>${mule.maven.plugin.version}</version>
         <extensions>true</extensions>
       </plugin>
+      <plugin>
+        <groupId>com.mulesoft.munit.tools</groupId>
+        <artifactId>munit-maven-plugin</artifactId>
+        <version>${munit.version}</version>
+        <executions>
+          <execution>
+            <id>munit-test</id>
+            <phase>test</phase>
+            <goals>
+              <goal>test</goal>
+              <goal>coverage-report</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <runtimeProduct>${munit.runtime.product}</runtimeProduct>
+          <enableSurefireReports>true</enableSurefireReports>
+          <surefireReportsFolder>${project.build.directory}/munit-reports</surefireReportsFolder>
+          <coverage>
+            <runCoverage>true</runCoverage>
+            <failBuild>true</failBuild>
+            <requiredApplicationCoverage>${munit.coverage.required}</requiredApplicationCoverage>
+            <formats>
+              <format>html</format>
+              <format>json</format>
+            </formats>
+          </coverage>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
+  <repositories>
+    <repository>
+      <id>mulesoft-releases</id>
+      <url>https://repository.mulesoft.org/releases/</url>
+    </repository>
+  </repositories>
+  <pluginRepositories>
+    <pluginRepository>
+      <id>mulesoft-releases</id>
+      <url>https://repository.mulesoft.org/releases/</url>
+    </pluginRepository>
+  </pluginRepositories>
 </project>

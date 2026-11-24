@@ -1,13 +1,33 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:mule="http://www.mulesoft.org/schema/mule/core"
       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
       xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
-      xmlns:mtf="http://www.mulesoft.org/schema/mule/mtf"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
       xsi:schemaLocation="
         http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
         http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
-        http://www.mulesoft.org/schema/mule/mtf http://www.mulesoft.org/schema/mule/mtf/current/mule-mtf.xsd">
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
 
   <munit:config name="enterprise-test-suite"/>
 
+  <!-- Replace both example flow names and the expected value for the application. -->
+  <munit:test name="example-process-success">
+    <munit:behavior>
+      <munit-tools:mock-when processor="mule:flow-ref">
+        <munit-tools:with-attributes>
+          <munit-tools:with-attribute attributeName="name" whereValue="#['example-downstream-flow']"/>
+        </munit-tools:with-attributes>
+        <munit-tools:then-return>
+          <munit-tools:payload value="#['mocked result']"/>
+        </munit-tools:then-return>
+      </munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution>
+      <flow-ref name="example-process-flow"/>
+    </munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[payload]" is="#[MunitTools::equalTo('mocked result')]"/>
+    </munit:validation>
+  </munit:test>
 </mule>

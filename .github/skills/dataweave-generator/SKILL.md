@@ -12,12 +12,14 @@ description: Generates DataWeave 2.0 mappings, reusable modules, schemas, and ma
 
 ## Workflow Steps
 1. Compare source/target schemas and mappings.
+   Read the selected project's mapping specification, requirement IDs, and sanitized input/output examples; ask for missing business rules instead of inventing them.
 2. Define null, default, enum, date, number, and locale behavior.
 3. Generate reusable transformation modules.
 4. Minimize payload fields and redact sensitive values.
 5. Add streaming or batch-aware mappings when needed.
 6. Create MUnit fixtures and assertions.
 7. Trace each transform's actual input and media type through the flow; preserve source data in a connector target variable when later steps replace the payload.
+8. For an existing mapping, inspect callers, variable and payload contracts, failure behavior, and baseline tests before editing; preserve unrelated behavior.
 
 ## Expected Outputs
 - Mapping `.dwl` files
@@ -30,6 +32,7 @@ description: Generates DataWeave 2.0 mappings, reusable modules, schemas, and ma
 - Required and nullable fields are explicit.
 - Large collections use streaming or batch patterns.
 - Output conforms to target schema/examples.
+- Complex mapping cases, including duplicates, ordering, lookups, dates, numeric precision, nulls, invalid inputs, and failure handling, have explicit agreed rules where applicable and corresponding tests.
 - Validate collection types before mapping; an Object cannot be made an Array with `as Array`. Do not hide unexpected input with `default []` or accept output-shaped objects as source records.
 - XLSX input records and output workbook objects are different contracts: map raw records once into `{SheetName: [rowObjects]}` and serialize once. Reference the explicit source variable consistently in counting and mapping.
 - Qualify non-core functions such as `dw::Runtime::fail`, or import them from their defining module.
@@ -41,4 +44,5 @@ description: Generates DataWeave 2.0 mappings, reusable modules, schemas, and ma
 - Time-zone shifts use TimeZone literals (`>> |+00:00|`), not strings; nullable branches must still type-check as DateTime.
 
 ## Supporting Artifacts
-- Use `templates/mule-project/src/main/resources/dwl/` patterns.
+- Place generated mappings under the target project's `src/main/resources/dwl/` and follow any existing project module conventions.
+- Use `templates/project-context/mapping-specification-template.md` for nontrivial mappings.

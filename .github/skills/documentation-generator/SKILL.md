@@ -17,6 +17,7 @@ description: Generates implementation, operational, security, testing, and runbo
 4. Generate runbook, monitoring, alert, and recovery procedures.
 5. Generate decision log and assumption/limitation list.
 6. Validate links and sensitive-data-free examples.
+7. Use project-scoped context, requirement traceability, mapping specifications, impact assessments, and troubleshooting records as applicable; report verification and unresolved decisions.
 
 ## Expected Outputs
 - README

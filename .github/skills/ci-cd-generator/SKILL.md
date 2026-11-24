@@ -16,6 +16,7 @@ description: Generates Maven and GitHub Actions pipelines for build, MUnit, secu
 4. Publish versioned immutable artifacts.
 5. Deploy dev, QA, and prod with environment protections.
 6. Capture evidence and support rollback.
+7. Select an explicit Mule project or verified project matrix and run Maven from each selected `pom.xml`. Publish the actual MUnit and coverage reports and fail if no tests execute, the target is missing, reports are absent, or coverage is below the explicit threshold.
 
 ## Expected Outputs
 - GitHub Actions workflows
@@ -27,3 +28,6 @@ description: Generates Maven and GitHub Actions pipelines for build, MUnit, secu
 - Tests and scans block merge or deployment on failure.
 - Secrets are read from GitHub or enterprise secret storage.
 - Prod deployment requires approval.
+
+## Supporting Artifacts
+- When adopting `.github/workflows/test.yml`, include `scripts/check_munit_reports.py` and configure the MUnit Surefire report directory as shown in `templates/mule-project/pom.xml`.
