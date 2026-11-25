@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+  <flow name="http-account-document-main" doc:description="FR-10 FR-11 FR-12 SEC-01 SEC-02">
+    <http:listener config-ref="http-api-listener-config" path="/*">
+      <http:response statusCode="#[vars.httpStatus default 200]"><http:headers>#[vars.outboundHeaders default {}]</http:headers></http:response>
+      <http:error-response statusCode="#[vars.httpStatus default 500]"><http:body>#[payload]</http:body><http:headers>#[vars.outboundHeaders default {}]</http:headers></http:error-response>
+    </http:listener>
+    <set-variable variableName="startedMs" value="#[now() as Number {unit: 'milliseconds'}]"/>
+    <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="deadline()" target="deadline"/>
+    <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="correlation(java.lang.String)" target="requestCorrelation">
+      <java:args>#[{supplied: attributes.headers.'x-correlation-id' default ''}]</java:args>
+    </java:invoke-static>
+    <set-variable variableName="transactionId" value="#[uuid()]"/>
+    <set-variable variableName="requestMethod" value="#[attributes.method]"/>
+    <set-variable variableName="routeTemplate" value="unmatched"/>
+    <set-variable variableName="outboundHeaders" value="#[{'X-Correlation-ID': vars.requestCorrelation, 'Cache-Control': 'no-store'}]"/>
+    <set-variable variableName="logFlow" value="http-account-document-main"/>
+    <set-variable variableName="logStatus" value="FLOW_START"/>
+    <flow-ref name="log-metadata-process"/>
+    <flow-ref name="validate-auth-metadata-process"/>
+    <apikit:router config-ref="account-pdf-api-config"/>
+    <set-variable variableName="logFlow" value="http-account-document-main"/>
+    <set-variable variableName="logStatus" value="FLOW_COMPLETED"/>
+    <flow-ref name="log-metadata-process"/>
+    <error-handler ref="account-pdf-error-handler"/>
+  </flow>
+  <flow name="get:\documents\(recordId):account-pdf-api-config" doc:description="FR-10 FR-05">
+    <set-variable variableName="routeTemplate" value="/documents/{recordId}"/>
+    <set-variable variableName="recordId" value="#[attributes.uriParams.recordId]"/>
+    <flow-ref name="account-generate-document-process"/>
+  </flow>
+  <flow name="get:\documents:account-pdf-api-config" doc:description="ERR-01">
+    <raise-error type="APP:INVALID_ACCOUNT_ID" description="Invalid Salesforce Account Id."/>
+  </flow>
+  <flow name="get:\health:account-pdf-api-config" doc:description="FR-11">
+    <flow-ref name="health-get-process"/>
+  </flow>
+</mule>

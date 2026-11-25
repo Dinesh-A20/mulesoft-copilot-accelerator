@@ -1,0 +1,116 @@
+name: Salesforce PDF - Promote Immutable Artifact
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      artifact-run-id:
+        required: true
+        type: string
+      artifact-sha:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [qa, prod]
+        required: true
+      artifact-run-id:
+        required: true
+        description: Successful build workflow run ID
+      artifact-sha:
+        required: true
+        description: Source SHA of that verified artifact
+permissions:
+  contents: read
+  actions: read
+jobs:
+  promote:
+    environment: ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.artifact-sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Fail closed unless all release prerequisites were verified
+        shell: bash
+        env:
+          RELEASE_READY: ${{ vars.PDF_RELEASE_READY }}
+          EXCHANGE_PUBLISHED: ${{ vars.PDF_EXCHANGE_PUBLISHED }}
+          MULE_ENV: ${{ inputs.environment }}
+          ARTIFACT_SHA: ${{ inputs.artifact-sha }}
+          QA_VERIFIED_SHA: ${{ vars.PDF_QA_VERIFIED_ARTIFACT_SHA }}
+        run: |
+          test "$RELEASE_READY" = true || { echo "Unresolved release/renderer/security/monitoring prerequisites"; exit 1; }
+          test "$EXCHANGE_PUBLISHED" = true || { echo "Immutable artifact must be published to Exchange first"; exit 1; }
+          if [ "$MULE_ENV" = prod ]; then
+            test "$QA_VERIFIED_SHA" = "$ARTIFACT_SHA" || { echo "QA evidence for this exact artifact is required"; exit 1; }
+          fi
+      - name: Verify artifact provenance and passing build job
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.artifact-run-id }}
+          ARTIFACT_SHA: ${{ inputs.artifact-sha }}
+        run: |
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID")
+          printf '%s' "$run" | jq -e --arg sha "$ARTIFACT_SHA" \
+            '.head_sha == $sha and .head_branch == "main" and .event != "pull_request" and .path == ".github/workflows/salesforce-pdf-build.yml"'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID/jobs?per_page=100" \
+            | jq -e 'any(.jobs[]; .name == "build" and .conclusion == "success")'
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.artifact-run-id }}
+          name: salesforce-pdf-${{ inputs.artifact-sha }}
+          path: artifact
+      - name: Verify artifact bytes
+        working-directory: artifact
+        run: sha256sum -c artifact.sha256
+      - name: Promote without rebuilding
+        shell: bash
+        env:
+          MAVEN_SETTINGS_XML: ${{ secrets.MAVEN_SETTINGS_XML }}
+          DEPLOY_CLIENT_ID: ${{ secrets.DEPLOY_CLIENT_ID }}
+          DEPLOY_CLIENT_SECRET: ${{ secrets.DEPLOY_CLIENT_SECRET }}
+          PLATFORM_URI: ${{ vars.PLATFORM_URI }}
+          PLATFORM_ENVIRONMENT: ${{ vars.PLATFORM_ENVIRONMENT }}
+          EXCHANGE_GROUP_ID: ${{ vars.EXCHANGE_GROUP_ID }}
+          CLOUDHUB_TARGET: ${{ vars.CLOUDHUB_TARGET }}
+          CLOUDHUB_APPLICATION: ${{ vars.CLOUDHUB_APPLICATION }}
+          CLOUDHUB_REPLICAS: ${{ vars.CLOUDHUB_REPLICAS }}
+          CLOUDHUB_VCORES: ${{ vars.CLOUDHUB_VCORES }}
+          MULE_ENV: ${{ inputs.environment }}
+        run: |
+          test -n "$MAVEN_SETTINGS_XML" && test -n "$DEPLOY_CLIENT_ID" && test -n "$DEPLOY_CLIENT_SECRET"
+          test -n "$PLATFORM_URI" && test -n "$PLATFORM_ENVIRONMENT" && test -n "$EXCHANGE_GROUP_ID"
+          test -n "$CLOUDHUB_TARGET" && test -n "$CLOUDHUB_APPLICATION" && test -n "$CLOUDHUB_VCORES"
+          case "$MULE_ENV" in dev|qa) test "$CLOUDHUB_REPLICAS" -ge 1 ;; prod) test "$CLOUDHUB_REPLICAS" -ge 2 ;; *) exit 1 ;; esac
+          printf '%s' "$MAVEN_SETTINGS_XML" > "$RUNNER_TEMP/settings.xml"
+          chmod 600 "$RUNNER_TEMP/settings.xml"
+          mvn -B -ntp -s "$RUNNER_TEMP/settings.xml" -f salesforce-pdf-api/deployment/pom.xml mule:deploy \
+            "-Ddeployment.artifact=$GITHUB_WORKSPACE/artifact/salesforce-pdf-api-1.0.0-mule-application.jar" \
+            "-Dexchange.group-id=$EXCHANGE_GROUP_ID" "-Dplatform.uri=$PLATFORM_URI" \
+            "-Dplatform.environment=$PLATFORM_ENVIRONMENT" "-Dcloudhub.target=$CLOUDHUB_TARGET" \
+            "-Dcloudhub.application=$CLOUDHUB_APPLICATION" "-Dcloudhub.replicas=$CLOUDHUB_REPLICAS" \
+            "-Dcloudhub.vcores=$CLOUDHUB_VCORES" "-Dmule.env=$MULE_ENV"
+      - name: Authenticated health smoke check
+        shell: bash
+        env:
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+          HEALTH_JWT: ${{ secrets.HEALTH_JWT }}
+          HEALTH_CLIENT_ID: ${{ secrets.HEALTH_CLIENT_ID }}
+          HEALTH_CLIENT_SECRET: ${{ secrets.HEALTH_CLIENT_SECRET }}
+        run: |
+          test -n "$HEALTH_URL" && test -n "$HEALTH_JWT" && test -n "$HEALTH_CLIENT_ID" && test -n "$HEALTH_CLIENT_SECRET"
+          response=$(curl --fail --silent --show-error --max-time 20 --proto '=https' --tlsv1.2 \
+            -H "Authorization: Bearer $HEALTH_JWT" -H "client_id: $HEALTH_CLIENT_ID" \
+            -H "client_secret: $HEALTH_CLIENT_SECRET" "$HEALTH_URL")
+          test "$(printf '%s' "$response" | jq -r '.status')" = UP

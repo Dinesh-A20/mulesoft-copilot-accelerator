@@ -1,0 +1,5 @@
+# DEP-01: region, vCores and replica validation remain release blockers.
+deployment:
+  replicas: "2"
+logging:
+  level: "INFO"

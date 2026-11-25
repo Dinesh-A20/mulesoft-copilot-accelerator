@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration status="WARN">
+  <Appenders><Console name="Console"><PatternLayout pattern="%m%n"/></Console></Appenders>
+  <Loggers>
+    <Logger name="org.mule.service.http.impl.service.HttpMessageLogger" level="OFF"/>
+    <Logger name="com.openhtmltopdf" level="OFF"/>
+    <Logger name="org.apache.pdfbox" level="OFF"/>
+    <Logger name="com.enterprise.accountpdf" level="INFO"/>
+    <Root level="WARN"><AppenderRef ref="Console"/></Root>
+  </Loggers>
+</Configuration>

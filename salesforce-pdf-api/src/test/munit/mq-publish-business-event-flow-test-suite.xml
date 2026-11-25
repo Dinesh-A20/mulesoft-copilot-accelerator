@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+  <munit:config name="mq-test-config"/>
+  <munit:test name="mq-transient-failure-preserves-event-id" description="AC-26 AC-27">
+    <munit:behavior>
+      <munit-tools:mock-when processor="anypoint-mq:publish"><munit-tools:then-return><munit-tools:error typeId="ANYPOINT-MQ:CONNECTIVITY"/></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
+      <munit-tools:spy processor="anypoint-mq:publish">
+        <munit-tools:before-call><munit-tools:assert-that expression="#[vars.event.eventId]" is="#[MunitTools::equalTo('same-event-id')]"/></munit-tools:before-call>
+      </munit-tools:spy>
+    </munit:behavior>
+    <munit:execution>
+      <flow-ref name="initialize-document-test"/>
+      <set-variable variableName="businessEvent" value="PDF_FAILED"/>
+      <set-variable variableName="event" value="#[{schemaVersion:'1.0', eventId:'same-event-id', eventType:'PDF_FAILED', timestamp:'2026-11-25T08:30:00Z', correlationId:'test-correlation', transactionId:'test-transaction', apiName:'salesforce-pdf-api', status:'FAILED', processingTimeMs:1, errorCode:'NOT_FOUND'}]"/>
+      <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="acquirePublisher(java.lang.Long)" target="publisherLease"><java:args>#[{deadline:vars.deadline}]</java:args></java:invoke-static>
+      <flow-ref name="mq-publish-business-event-system"/>
+    </munit:execution>
+    <munit:validation>
+      <munit-tools:verify-call processor="anypoint-mq:publish" times="3"/>
+      <munit-tools:assert-that expression="#[vars.logStatus]" is="#[MunitTools::equalTo('MQ_PUBLICATION_FAILED')]"/>
+      <munit-tools:assert-that expression="#[vars.event.eventId]" is="#[MunitTools::equalTo('same-event-id')]"/>
+    </munit:validation>
+  </munit:test>
+  <munit:test name="mq-expired-deadline-does-not-publish" description="AC-26">
+    <munit:behavior><munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when></munit:behavior>
+    <munit:execution>
+      <flow-ref name="initialize-document-test"/>
+      <set-variable variableName="deadline" value="#[0]"/>
+      <set-variable variableName="publisherLease" value=""/>
+      <flow-ref name="mq-publish-business-event-system"/>
+    </munit:execution>
+    <munit:validation><munit-tools:verify-call processor="anypoint-mq:publish" times="0"/></munit:validation>
+  </munit:test>
+  <munit:test name="failure-event-scheduling-does-not-overwrite-error" description="AC-25">
+    <munit:behavior>
+      <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution>
+      <flow-ref name="initialize-document-test"/>
+      <set-variable variableName="deadline" value="#[0]"/>
+      <set-variable variableName="httpStatus" value="#[404]"/>
+      <set-variable variableName="errorInfo" value="#[{errorCode:'NOT_FOUND'}]"/>
+      <set-variable variableName="businessEvent" value="PDF_FAILED"/>
+      <set-payload value="#[{status:'FAILED', errorCode:'NOT_FOUND', message:'Account not found.', correlationId:'test-correlation'}]"/>
+      <flow-ref name="schedule-business-event-process"/>
+    </munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo(404)]"/>
+      <munit-tools:assert-that expression="#[payload.errorCode]" is="#[MunitTools::equalTo('NOT_FOUND')]"/>
+      <munit-tools:assert-that expression="#[vars.event.errorCode]" is="#[MunitTools::equalTo('NOT_FOUND')]"/>
+      <munit-tools:verify-call processor="anypoint-mq:publish" times="0"/>
+    </munit:validation>
+  </munit:test>
+</mule>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd">
+  <flow name="sap-enrichment-disabled-extension" doc:description="FR-26 FR-27 FR-28 AC-29. Not called by the PDF path; no SAP system integration is approved.">
+    <raise-error type="APP:FEATURE_DISABLED" description="SAP enrichment requires a separately approved contract."/>
+  </flow>
+</mule>

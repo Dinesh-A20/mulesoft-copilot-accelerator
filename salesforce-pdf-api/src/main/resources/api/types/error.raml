@@ -1,0 +1,17 @@
+#%RAML 1.0 DataType
+type: object
+additionalProperties: false
+properties:
+  status:
+    type: string
+    enum: [FAILED]
+  errorCode:
+    type: string
+    minLength: 1
+  message:
+    type: string
+    minLength: 1
+  correlationId:
+    type: string
+    minLength: 1
+    maxLength: 64

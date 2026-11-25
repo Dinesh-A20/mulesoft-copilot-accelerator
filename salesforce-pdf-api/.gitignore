@@ -1,0 +1,10 @@
+.tools/
+target/
+renderer/target/
+deployment/target/
+*.jks
+*.p12
+*.pem
+*.key
+settings-local.xml
+src/main/resources/properties/secure-*.properties

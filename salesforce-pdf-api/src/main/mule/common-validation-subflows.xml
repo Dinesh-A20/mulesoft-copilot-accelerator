@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+  <sub-flow name="validate-account-id-process" doc:description="FR-08 ERR-01 AC-03">
+    <choice><when expression="#[not (vars.recordId is String) or not ((vars.recordId default '') matches /^001[a-zA-Z0-9]{12}([a-zA-Z0-9]{3})?$/)]">
+      <raise-error type="APP:INVALID_ACCOUNT_ID" description="Invalid Salesforce Account Id."/>
+    </when></choice>
+  </sub-flow>
+  <sub-flow name="validate-auth-metadata-process" doc:description="SEC-01 SEC-02 ERR-03. Signature/claims/client validation remains API Manager policy responsibility.">
+    <choice><when expression="#[not ((attributes.headers.authorization default '') startsWith 'Bearer ') or isEmpty(trim(attributes.headers.client_id default '')) or isEmpty(trim(attributes.headers.client_secret default ''))]">
+      <raise-error type="APP:UNAUTHORIZED" description="Authentication or authorization failed."/>
+    </when></choice>
+  </sub-flow>
+  <sub-flow name="validate-account-data-process" doc:description="FR-08 ERR-04 ERR-05 AC-05">
+    <choice><when expression="#[%dw 2.0 import mandatoryValid, optionalValid from dwl::AccountDocument output application/java --- not mandatoryValid(vars.account) or not optionalValid(vars.account)]">
+      <raise-error type="APP:ACCOUNT_DATA_INVALID" description="Mandatory Account data returned from Salesforce is incomplete."/>
+    </when></choice>
+  </sub-flow>
+  <sub-flow name="validate-pdf-response-process" doc:description="FR-08 ERR-10 AC-12">
+    <choice><when expression="#[not (payload is Binary) or sizeOf(payload) &gt; 2097152]">
+      <raise-error type="APP:PDF_SIZE_EXCEEDED" description="Generated document exceeds the permitted size."/>
+    </when></choice>
+    <flow-ref name="validate-deadline-process"/>
+  </sub-flow>
+  <sub-flow name="validate-deadline-process" doc:description="ERR-07 AC-10">
+    <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="requireBudget(java.lang.Long,java.lang.Long)" target="deadlineCheck">
+      <java:args>#[{deadline: vars.deadline, millis: 1}]</java:args>
+    </java:invoke-static>
+  </sub-flow>
+</mule>

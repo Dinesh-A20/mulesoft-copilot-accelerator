@@ -1,0 +1,5 @@
+# DEP-01: credentials, endpoints, TLS and API identity must be supplied at deployment.
+deployment:
+  replicas: "1"
+logging:
+  level: "INFO"

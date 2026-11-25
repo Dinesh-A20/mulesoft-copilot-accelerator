@@ -1,0 +1,86 @@
+name: Salesforce PDF - Build and Verify
+on:
+  pull_request:
+    paths: ["salesforce-pdf-api/**", ".github/workflows/salesforce-pdf-*.yml"]
+  push:
+    branches: [main]
+    paths: ["salesforce-pdf-api/**", ".github/workflows/salesforce-pdf-*.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Require enterprise repository and isolated test configuration
+        shell: bash
+        env:
+          MAVEN_SETTINGS_XML: ${{ secrets.MAVEN_SETTINGS_XML }}
+          MUNIT_MAVEN_OPTIONS: ${{ secrets.MUNIT_MAVEN_OPTIONS }}
+          MUNIT_SECURE_PROPERTIES: ${{ secrets.MUNIT_SECURE_PROPERTIES }}
+          MUNIT_TLS_PKCS12_BASE64: ${{ secrets.MUNIT_TLS_PKCS12_BASE64 }}
+          MUNIT_TRUSTSTORE_BASE64: ${{ secrets.MUNIT_TRUSTSTORE_BASE64 }}
+        run: |
+          test -n "$MAVEN_SETTINGS_XML" || { echo "Missing authorized Maven settings"; exit 1; }
+          test -n "$MUNIT_MAVEN_OPTIONS" || { echo "Missing isolated MUnit TLS/configuration options"; exit 1; }
+          test -n "$MUNIT_SECURE_PROPERTIES" && test -n "$MUNIT_TLS_PKCS12_BASE64" && test -n "$MUNIT_TRUSTSTORE_BASE64" \
+            || { echo "Missing test-only encrypted properties and loopback certificate fixtures"; exit 1; }
+          printf '%s' "$MAVEN_SETTINGS_XML" > "$RUNNER_TEMP/settings.xml"
+          printf '%s' "$MUNIT_SECURE_PROPERTIES" > "$RUNNER_TEMP/munit-secure.properties"
+          printf '%s' "$MUNIT_TLS_PKCS12_BASE64" | base64 --decode > "$RUNNER_TEMP/munit-tls.p12"
+          printf '%s' "$MUNIT_TRUSTSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/munit-trust.p12"
+          chmod 600 "$RUNNER_TEMP/settings.xml"
+          chmod 600 "$RUNNER_TEMP/munit-"*
+      - name: Static analysis
+        run: mvn -B -ntp -f salesforce-pdf-api/renderer/pom.xml org.apache.maven.plugins:maven-pmd-plugin:3.28.0:check
+      - name: Renderer unit and process tests; install immutable support artifacts
+        run: mvn -B -ntp -f salesforce-pdf-api/renderer/pom.xml install
+      - name: Mule build, MUnit and package
+        shell: bash
+        env:
+          MUNIT_MAVEN_OPTIONS: ${{ secrets.MUNIT_MAVEN_OPTIONS }}
+        run: |
+          # Options must reference pre-provisioned test-only settings/certificates, never live systems.
+          read -r -a test_options <<< "$MUNIT_MAVEN_OPTIONS"
+          mvn -B -ntp -s "$RUNNER_TEMP/settings.xml" -f salesforce-pdf-api/pom.xml verify "${test_options[@]}" \
+            "-Dsecure.file=$RUNNER_TEMP/munit-secure.properties" "-Dhttp.tls.keystore=$RUNNER_TEMP/munit-tls.p12" \
+            "-Dtest.truststore=$RUNNER_TEMP/munit-trust.p12" "-Dhttp.host=127.0.0.1"
+      - name: Require actual coverage report
+        run: test -s salesforce-pdf-api/target/site/munit/coverage/munit-coverage.json
+      - name: Hash the packaged artifact
+        working-directory: salesforce-pdf-api/target
+        run: sha256sum salesforce-pdf-api-1.0.0-mule-application.jar > artifact.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: salesforce-pdf-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            salesforce-pdf-api/target/salesforce-pdf-api-1.0.0-mule-application.jar
+            salesforce-pdf-api/target/artifact.sha256
+      - name: Preserve test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: salesforce-pdf-evidence-${{ github.sha }}
+          if-no-files-found: warn
+          path: |
+            salesforce-pdf-api/renderer/target/surefire-reports/
+            salesforce-pdf-api/renderer/target/failsafe-reports/
+            salesforce-pdf-api/target/surefire-reports/
+            salesforce-pdf-api/target/site/munit/
+  deploy-dev:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PDF_DEV_READY == 'true'
+    needs: build
+    uses: ./.github/workflows/salesforce-pdf-promote.yml
+    with:
+      environment: dev
+      artifact-run-id: ${{ github.run_id }}
+      artifact-sha: ${{ github.sha }}
+    secrets: inherit

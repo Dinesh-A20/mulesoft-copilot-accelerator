@@ -1,0 +1,22 @@
+%dw 2.0
+fun result(status, code, message) = {httpStatus: status, errorCode: code, message: message}
+fun classify(errorType, rootCode) =
+  if (errorType == "APP:INVALID_ACCOUNT_ID" or errorType == "APIKIT:BAD_REQUEST")
+    result(400, "INVALID_ACCOUNT_ID", "Invalid Salesforce Account Id.")
+  else if (errorType == "APP:NOT_FOUND" or errorType == "APIKIT:NOT_FOUND" or errorType == "SALESFORCE:INSUFFICIENT_ACCESS")
+    result(404, "NOT_FOUND", "Account not found.")
+  else if (errorType == "APP:ACCOUNT_DATA_INVALID")
+    result(502, "ACCOUNT_DATA_INVALID", "Mandatory Account data returned from Salesforce is incomplete.")
+  else if (errorType == "APIKIT:METHOD_NOT_ALLOWED")
+    result(405, "METHOD_NOT_ALLOWED", "Method not allowed.")
+  else if (errorType contains "UNAUTHORIZED" or errorType contains "INVALID_SESSION")
+    result(401, "UNAUTHORIZED", "Authentication or authorization failed.")
+  else if (rootCode == "TIMEOUT" or errorType contains "TIMEOUT")
+    result(504, "TIMEOUT", "Request processing timed out.")
+  else if (rootCode == "CAPACITY_EXCEEDED")
+    result(503, "CAPACITY_EXCEEDED", "Service capacity exceeded. Please retry later.")
+  else if (rootCode == "PDF_SIZE_EXCEEDED" or errorType == "APP:PDF_SIZE_EXCEEDED")
+    result(500, "PDF_SIZE_EXCEEDED", "Generated document exceeds the permitted size.")
+  else if (rootCode == "DEPENDENCY_UNAVAILABLE" or errorType contains "CONNECTIVITY")
+    result(503, "DEPENDENCY_UNAVAILABLE", "A required dependency is unavailable.")
+  else result(500, "INTERNAL_ERROR", "Unable to generate the document.")

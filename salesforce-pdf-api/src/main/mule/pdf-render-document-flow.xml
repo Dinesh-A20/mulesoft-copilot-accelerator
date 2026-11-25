@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+  <flow name="pdf-render-document-process" doc:description="FR-07 CON-06 ERR-07 NFR-02 NFR-03">
+    <set-variable variableName="renderStartedMs" value="#[now() as Number {unit: 'milliseconds'}]"/>
+    <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="renderDeadline(java.lang.Long)" target="renderDeadline">
+      <java:args>#[{overallDeadline: vars.deadline}]</java:args>
+    </java:invoke-static>
+    <java:invoke-static class="com.enterprise.pdf.IsolatedRenderer" method="javaExecutable()" target="rendererJava"/>
+    <java:invoke-static class="com.enterprise.pdf.IsolatedRenderer" method="rendererJar()" target="rendererJar"/>
+    <java:invoke-static class="com.enterprise.pdf.IsolatedRenderer" method="render(java.lang.String,java.lang.String,java.lang.String,java.lang.Long)">
+      <java:args>#[{html: payload as String, javaExecutable: vars.rendererJava, rendererJar: vars.rendererJar, deadline: vars.renderDeadline}]</java:args>
+    </java:invoke-static>
+    <set-payload value="#[payload]" mimeType="application/pdf"/>
+    <set-variable variableName="logFlow" value="pdf-render-document-process"/>
+    <set-variable variableName="logStatus" value="PDF_RENDERED"/>
+    <set-variable variableName="stageDurationMs" value="#[(now() as Number {unit: 'milliseconds'}) - vars.renderStartedMs]"/>
+    <flow-ref name="log-metadata-process"/>
+    <remove-variable variableName="stageDurationMs"/>
+  </flow>
+</mule>

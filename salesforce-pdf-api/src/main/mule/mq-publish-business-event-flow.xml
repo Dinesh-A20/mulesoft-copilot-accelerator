@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:anypoint-mq="http://www.mulesoft.org/schema/mule/anypoint-mq" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/anypoint-mq http://www.mulesoft.org/schema/mule/anypoint-mq/current/mule-anypoint-mq.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+  <flow name="mq-publish-business-event-system" doc:description="FR-20..24 ERR-20..23 SEC-20">
+    <set-variable variableName="mqDone" value="#[false]"/>
+    <set-variable variableName="logFlow" value="mq-publish-business-event-system"/>
+    <try>
+      <foreach collection="#[0 to 2]">
+        <choice><when expression="#[not vars.mqDone]">
+          <set-variable variableName="mqAttempt" value="#[payload]"/>
+          <choice><when expression="#[vars.mqAttempt &gt; 0]">
+            <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="pause(java.lang.Long,java.lang.Long)" target="retryWait">
+              <java:args>#[{deadline: vars.deadline, millis: 1000}]</java:args>
+            </java:invoke-static>
+          </when></choice>
+          <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="requireBudget(java.lang.Long,java.lang.Long)" target="deadlineCheck">
+            <java:args>#[{deadline: vars.deadline, millis: 6000}]</java:args>
+          </java:invoke-static>
+          <set-variable variableName="logStatus" value="MQ_BEFORE_PUBLISH"/>
+          <flow-ref name="log-metadata-process"/>
+          <try>
+            <anypoint-mq:publish config-ref="mq-business-event-config" destination="#[if (vars.event.eventType == 'PDF_GENERATED') p('mq.success-queue') else p('mq.failure-queue')]" messageId="#[vars.event.eventId]" target="publishResult">
+              <anypoint-mq:body>#[write(vars.event, 'application/json')]</anypoint-mq:body>
+            </anypoint-mq:publish>
+            <set-variable variableName="mqDone" value="#[true]"/>
+            <set-variable variableName="logStatus" value="MQ_PUBLISHED"/>
+            <flow-ref name="log-metadata-process"/>
+            <error-handler><on-error-continue type="ANYPOINT-MQ:CONNECTIVITY" when="#[vars.mqAttempt &lt; 2]" logException="false" enableNotifications="false">
+              <set-variable variableName="logStatus" value="MQ_RETRY"/>
+              <flow-ref name="log-metadata-process"/>
+            </on-error-continue></error-handler>
+          </try>
+        </when></choice>
+      </foreach>
+      <error-handler><on-error-continue type="ANY" logException="false" enableNotifications="false">
+        <set-variable variableName="logStatus" value="MQ_PUBLICATION_FAILED"/>
+        <flow-ref name="log-metadata-process"/>
+      </on-error-continue></error-handler>
+    </try>
+    <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="releasePublisher(java.lang.String)" target="publisherRelease">
+      <java:args>#[{lease: vars.publisherLease}]</java:args>
+    </java:invoke-static>
+    <error-handler><on-error-continue type="ANY" logException="false" enableNotifications="false">
+      <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="releasePublisher(java.lang.String)" target="publisherRelease">
+        <java:args>#[{lease: vars.publisherLease default ''}]</java:args>
+      </java:invoke-static>
+      <logger level="ERROR" category="com.enterprise.accountpdf" message="#[write({status:'MQ_PUBLICATION_FAILED', correlationId:vars.requestCorrelation, errorCode:'EVENT_DELIVERY_FAILED'}, 'application/json')]"/>
+    </on-error-continue></error-handler>
+  </flow>
+</mule>

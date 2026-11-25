@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:custom-metrics="http://www.mulesoft.org/schema/mule/custom-metrics" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd http://www.mulesoft.org/schema/mule/custom-metrics http://www.mulesoft.org/schema/mule/custom-metrics/current/mule-custom-metrics.xsd http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd">
+  <sub-flow name="log-metadata-process" doc:description="NFR-07 NFR-22 SEC-07 AC-16">
+    <ee:transform><ee:variables><ee:set-variable variableName="safeLog" resource="dwl/structured-log.dwl"/></ee:variables></ee:transform>
+    <logger level="INFO" category="com.enterprise.accountpdf" message="#[vars.safeLog]"/>
+    <try>
+      <java:invoke-static class="com.enterprise.pdf.IsolatedRenderer" method="active()" target="activeRenderers"/>
+      <custom-metrics:send metricName="account.pdf" throwOnValidationFailure="true" doc:description="NFR-08 NFR-23 NFR-24" dimensions="#[[{dimensionName: 'phase', value: vars.logStatus, collapsible: true}, {dimensionName: 'environment', value: p('mule.env'), collapsible: true}]]" facts="#[[{factName: 'occurrences', value: 1}, {factName: 'elapsed_ms', value: vars.stageDurationMs default ((now() as Number {unit: 'milliseconds'}) - vars.startedMs)}, {factName: 'active_renderers', value: vars.activeRenderers}, {factName: 'pdf_bytes', value: vars.pdfBytes default 0}, {factName: 'sap_enabled', value: 0}]]"/>
+      <choice><when expression="#[(vars.businessEvent default '') == 'SALESFORCE_RETRIEVED' or vars.logStatus == 'BUSINESS_EVENT']">
+        <tracking:custom-event event-name="#[vars.businessEvent]">
+          <tracking:meta-data key="correlationId" value="#[vars.requestCorrelation]"/>
+          <tracking:meta-data key="transactionId" value="#[vars.transactionId]"/>
+        </tracking:custom-event>
+        <custom-metrics:send metricName="account.pdf.business" throwOnValidationFailure="true" facts="#[[{factName: 'occurrences', value: 1}]]" dimensions="#[[{dimensionName: 'event_type', value: vars.businessEvent, collapsible: true}]]"/>
+      </when></choice>
+      <error-handler><on-error-continue type="ANY" logException="false" enableNotifications="false">
+        <logger level="ERROR" category="com.enterprise.accountpdf" message="#[write({status: 'METRICS_EMISSION_FAILED', correlationId: vars.requestCorrelation, errorCode: 'MONITORING_UNAVAILABLE'}, 'application/json')]"/>
+      </on-error-continue></error-handler>
+    </try>
+  </sub-flow>
+</mule>

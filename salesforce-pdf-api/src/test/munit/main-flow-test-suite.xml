@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:tls="http://www.mulesoft.org/schema/mule/tls" xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/tls http://www.mulesoft.org/schema/mule/tls/current/mule-tls.xsd http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+  <munit:config name="main-http-test-config"/>
+  <tls:context name="loopback-test-tls">
+    <tls:trust-store path="${test.truststore}" type="PKCS12" password="${test.store-password}"/>
+  </tls:context>
+  <http:request-config name="loopback-test-client" responseTimeout="20000">
+    <http:request-connection protocol="HTTPS" host="localhost" port="${http.port}" tlsContext="loopback-test-tls"/>
+  </http:request-config>
+  <munit:test name="listener-to-real-apikit-document-path" description="AC-01 AC-18: enabled HTTPS source, real router, real flow-ref modules; policy validation remains external">
+    <munit:enable-flow-sources><munit:enable-flow-source value="http-account-document-main"/></munit:enable-flow-sources>
+    <munit:behavior>
+      <munit-tools:mock-when processor="salesforce:query"><munit-tools:then-return><munit-tools:payload value="#[readUrl('classpath://account-complete.json', 'application/json')]" mediaType="application/java"/></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="anypoint-mq:publish"><munit-tools:then-return><munit-tools:payload value="#['accepted']"/></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution>
+      <http:request config-ref="loopback-test-client" method="GET" path="/documents/001XXXXXXXXXXXXAAA">
+        <http:headers>#[{Authorization: 'Bearer sanitized-test-token', client_id: 'test-client', client_secret: 'test-only-not-a-real-secret', 'X-Correlation-ID': 'listener-test'}]</http:headers>
+      </http:request>
+    </munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[attributes.statusCode]" is="#[MunitTools::equalTo(200)]"/>
+      <munit-tools:assert-that expression="#[attributes.headers.'x-correlation-id']" is="#[MunitTools::equalTo('listener-test')]"/>
+      <munit-tools:assert-that expression="#[(payload as String {encoding: 'ISO-8859-1'}) startsWith '%PDF-']" is="#[MunitTools::equalTo(true)]"/>
+      <munit-tools:verify-call processor="salesforce:query" times="1"/>
+    </munit:validation>
+  </munit:test>
+  <munit:test name="listener-invalid-id-error-contract" description="AC-03 AC-16 AC-17">
+    <munit:enable-flow-sources><munit:enable-flow-source value="http-account-document-main"/></munit:enable-flow-sources>
+    <munit:behavior>
+      <munit-tools:mock-when processor="anypoint-mq:publish"><munit-tools:then-return/></munit-tools:mock-when>
+      <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution>
+      <http:request config-ref="loopback-test-client" method="GET" path="/documents/invalid">
+        <http:headers>#[{Authorization: 'Bearer sanitized-test-token', client_id: 'test-client', client_secret: 'test-only-not-a-real-secret', 'X-Correlation-ID': 'invalid-test'}]</http:headers>
+        <http:response-validator><http:success-status-code-validator values="400"/></http:response-validator>
+      </http:request>
+    </munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[attributes.statusCode]" is="#[MunitTools::equalTo(400)]"/>
+      <munit-tools:assert-that expression="#[payload.errorCode]" is="#[MunitTools::equalTo('INVALID_ACCOUNT_ID')]"/>
+      <munit-tools:assert-that expression="#[payload.status]" is="#[MunitTools::equalTo('FAILED')]"/>
+      <munit-tools:verify-call processor="salesforce:query" times="0"/>
+    </munit:validation>
+  </munit:test>
+</mule>

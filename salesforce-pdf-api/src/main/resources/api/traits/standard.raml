@@ -1,0 +1,52 @@
+#%RAML 1.0 Trait
+description: FR-12 SEC-01 SEC-02. JWT/client policy rejection must use ERR-03; scope is provisioned by IAM.
+headers:
+  Authorization:
+    type: string
+    description: OAuth JWT bearer token; validated by provisioned API Manager policies.
+  client_id: string
+  client_secret: string
+  X-Correlation-ID?:
+    type: string
+    description: Unsafe/unbounded values are replaced with a generated identifier.
+responses:
+  400:
+    body:
+      application/json:
+        type: Error
+        example: {status: FAILED, errorCode: INVALID_ACCOUNT_ID, message: Invalid Salesforce Account Id., correlationId: test-correlation}
+  401:
+    body:
+      application/json:
+        type: Error
+        example: {status: FAILED, errorCode: UNAUTHORIZED, message: Authentication or authorization failed., correlationId: test-correlation}
+  404:
+    body:
+      application/json:
+        type: Error
+        example: {status: FAILED, errorCode: NOT_FOUND, message: Account not found., correlationId: test-correlation}
+  405:
+    body:
+      application/json:
+        type: Error
+        example: {status: FAILED, errorCode: METHOD_NOT_ALLOWED, message: Method not allowed., correlationId: test-correlation}
+  500:
+    body:
+      application/json:
+        type: Error
+        example: {status: FAILED, errorCode: INTERNAL_ERROR, message: Unable to generate the document., correlationId: test-correlation}
+  502:
+    body:
+      application/json:
+        type: Error
+        example: {status: FAILED, errorCode: ACCOUNT_DATA_INVALID, message: Mandatory Account data returned from Salesforce is incomplete., correlationId: test-correlation}
+  503:
+    body:
+      application/json:
+        type: Error
+        example: {status: FAILED, errorCode: CAPACITY_EXCEEDED, message: Service capacity exceeded. Please retry later., correlationId: test-correlation}
+  504:
+    body:
+      application/json:
+        type: Error
+        example: {status: FAILED, errorCode: TIMEOUT, message: Request processing timed out., correlationId: test-correlation}

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>${exchange.group-id}</groupId><artifactId>salesforce-pdf-api</artifactId><version>1.0.0</version>
+  <packaging>pom</packaging>
+  <description>DEP-02 DEP-03: promote an existing Exchange-published artifact without recompilation</description>
+  <build><plugins><plugin>
+    <groupId>org.mule.tools.maven</groupId><artifactId>mule-maven-plugin</artifactId><version>4.6.1</version>
+    <configuration>
+      <artifact>${deployment.artifact}</artifact>
+      <cloudhub2Deployment>
+        <uri>${platform.uri}</uri><provider>MC</provider>
+        <environment>${platform.environment}</environment><target>${cloudhub.target}</target>
+        <muleVersion>4.9.4</muleVersion><javaVersion>17</javaVersion><releaseChannel>LTS</releaseChannel>
+        <applicationName>${cloudhub.application}</applicationName>
+        <connectedAppClientId>${env.DEPLOY_CLIENT_ID}</connectedAppClientId>
+        <connectedAppClientSecret>${env.DEPLOY_CLIENT_SECRET}</connectedAppClientSecret>
+        <connectedAppGrantType>client_credentials</connectedAppGrantType>
+        <replicas>${cloudhub.replicas}</replicas><vCores>${cloudhub.vcores}</vCores>
+        <deploymentSettings><http><inbound><lastMileSecurity>true</lastMileSecurity></inbound></http></deploymentSettings>
+        <properties><mule.env>${mule.env}</mule.env></properties>
+      </cloudhub2Deployment>
+    </configuration>
+  </plugin></plugins></build>
+  <pluginRepositories><pluginRepository><id>mulesoft-releases</id><url>https://repository.mulesoft.org/nexus/content/repositories/releases/</url></pluginRepository></pluginRepositories>
+</project>

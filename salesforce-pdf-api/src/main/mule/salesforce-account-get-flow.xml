@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+  <flow name="salesforce-account-get-system" doc:description="FR-01 FR-04 SEC-03 ERR-13">
+    <set-variable variableName="sfDone" value="#[false]"/>
+    <foreach collection="#[0 to 2]">
+      <choice><when expression="#[not vars.sfDone]">
+        <set-variable variableName="sfAttempt" value="#[payload]"/>
+        <choice><when expression="#[vars.sfAttempt &gt; 0]">
+          <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="pause(java.lang.Long,java.lang.Long)" target="retryWait">
+            <java:args>#[{deadline: vars.deadline, millis: 3000}]</java:args>
+          </java:invoke-static>
+        </when></choice>
+        <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="requireBudget(java.lang.Long,java.lang.Long)" target="deadlineCheck">
+          <java:args>#[{deadline: vars.deadline, millis: 15000}]</java:args>
+        </java:invoke-static>
+        <set-variable variableName="logFlow" value="salesforce-account-get-system"/>
+        <set-variable variableName="logStatus" value="BEFORE_CONNECTOR"/>
+        <set-variable variableName="connectorStartedMs" value="#[now() as Number {unit: 'milliseconds'}]"/>
+        <flow-ref name="log-metadata-process"/>
+        <try>
+          <salesforce:query config-ref="salesforce-account-config" target="accounts">
+            <salesforce:salesforce-query>#[ "SELECT Id, Name, Phone, Website, Type, Industry, BillingCity, BillingCountry, AnnualRevenue, LastModifiedDate FROM Account WHERE Id = '" ++ vars.recordId ++ "' LIMIT 1" ]</salesforce:salesforce-query>
+          </salesforce:query>
+          <set-variable variableName="sfDone" value="#[true]"/>
+          <error-handler>
+            <on-error-continue type="SALESFORCE:CONNECTIVITY" when="#[vars.sfAttempt &lt; 2]" logException="false">
+              <set-variable variableName="logStatus" value="SALESFORCE_RETRY"/>
+              <flow-ref name="log-metadata-process"/>
+            </on-error-continue>
+          </error-handler>
+        </try>
+      </when></choice>
+    </foreach>
+    <choice><when expression="#[isEmpty(vars.accounts)]">
+      <raise-error type="APP:NOT_FOUND" description="Account not found."/>
+    </when></choice>
+    <set-variable variableName="account" value="#[vars.accounts[0]]"/>
+    <remove-variable variableName="accounts"/>
+    <set-variable variableName="businessEvent" value="SALESFORCE_RETRIEVED"/>
+    <set-variable variableName="logStatus" value="AFTER_CONNECTOR"/>
+    <set-variable variableName="stageDurationMs" value="#[(now() as Number {unit: 'milliseconds'}) - vars.connectorStartedMs]"/>
+    <flow-ref name="log-metadata-process"/>
+    <remove-variable variableName="businessEvent"/>
+    <remove-variable variableName="stageDurationMs"/>
+    <flow-ref name="validate-deadline-process"/>
+  </flow>
+</mule>

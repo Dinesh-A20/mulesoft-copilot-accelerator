@@ -1,0 +1,56 @@
+#%RAML 1.0
+title: Salesforce Account PDF API
+version: v1
+protocols: [HTTPS]
+description: FR-10 FR-11 FR-12 FR-09. Salesforce read-only PDF bytes; no wrapper or storage contract.
+securitySchemes:
+  enterpriseJwt:
+    type: Pass Through
+    description: SEC-01 SEC-02. OAuth JWT and client credentials validated by provisioned API Manager policies; issuer/audience/scope are environment prerequisites.
+securedBy: [enterpriseJwt]
+types:
+  Error: !include types/error.raml
+traits:
+  standard: !include traits/standard.raml
+/documents:
+  get:
+    description: ERR-01. Missing Account ID returns 400 INVALID_ACCOUNT_ID.
+    is: [standard]
+    responses:
+      400:
+        body:
+          application/json: Error
+  /{recordId}:
+    uriParameters:
+      recordId:
+        type: string
+        pattern: ^001[a-zA-Z0-9]{12}([a-zA-Z0-9]{3})?$
+        example: "001XXXXXXXXXXXXAAA"
+    get:
+      description: FR-10 DR-01..15. Generate the current Account Summary Report.
+      is: [standard]
+      responses:
+        200:
+          headers:
+            X-Correlation-ID: string
+            Cache-Control:
+              type: string
+              example: no-store
+          body:
+            application/pdf:
+              type: file
+              fileTypes: [application/pdf]
+/health:
+  get:
+    description: FR-11. Authenticated runtime health only; no downstream requests.
+    is: [standard]
+    responses:
+      200:
+        body:
+          application/json:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [UP]
+            example: {status: UP}

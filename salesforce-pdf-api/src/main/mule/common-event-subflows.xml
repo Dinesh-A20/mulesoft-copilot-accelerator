@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+  <sub-flow name="schedule-business-event-process" doc:description="FR-20..25 DR-20 DR-21 ERR-21 ERR-22">
+    <try>
+      <ee:transform><ee:variables><ee:set-variable variableName="event" resource="dwl/business-event.dwl"/></ee:variables></ee:transform>
+      <set-variable variableName="logStatus" value="BUSINESS_EVENT"/>
+      <flow-ref name="log-metadata-process"/>
+      <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="acquirePublisher(java.lang.Long)" target="publisherLease">
+        <java:args>#[{deadline: vars.deadline}]</java:args>
+      </java:invoke-static>
+      <choice>
+        <when expression="#[not isEmpty(vars.publisherLease)]">
+          <async maxConcurrency="5">
+            <set-payload value="#[vars.event]" mimeType="application/java"/>
+            <remove-variable variableName="account"/><remove-variable variableName="document"/><remove-variable variableName="recordId"/>
+            <flow-ref name="mq-publish-business-event-system"/>
+          </async>
+        </when>
+        <otherwise>
+          <set-variable variableName="logStatus" value="MQ_SKIPPED_CAPACITY_OR_DEADLINE"/>
+          <flow-ref name="log-metadata-process"/>
+        </otherwise>
+      </choice>
+      <error-handler><on-error-continue type="ANY" logException="false" enableNotifications="false">
+        <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="releasePublisher(java.lang.String)" target="publisherRelease">
+          <java:args>#[{lease: vars.publisherLease default ''}]</java:args>
+        </java:invoke-static>
+        <set-variable variableName="logStatus" value="MQ_SCHEDULING_FAILED"/>
+        <flow-ref name="log-metadata-process"/>
+      </on-error-continue></error-handler>
+    </try>
+  </sub-flow>
+</mule>

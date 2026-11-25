@@ -1,0 +1,5 @@
+# DEP-01: protected environment; do not reuse DEV credentials.
+deployment:
+  replicas: "1"
+logging:
+  level: "INFO"

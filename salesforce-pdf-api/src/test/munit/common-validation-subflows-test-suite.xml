@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+  <munit:config name="validation-test-config"/>
+  <munit:test name="validate-account-id-invalid-prefix" description="AC-03" expectedErrorType="APP:INVALID_ACCOUNT_ID">
+    <munit:execution><set-variable variableName="recordId" value="003XXXXXXXXXXXXAAA"/><flow-ref name="validate-account-id-process"/></munit:execution>
+  </munit:test>
+  <munit:test name="validate-account-id-missing" description="AC-03" expectedErrorType="APP:INVALID_ACCOUNT_ID">
+    <munit:execution><flow-ref name="validate-account-id-process"/></munit:execution>
+  </munit:test>
+  <munit:test name="validate-account-id-wrong-datatype" description="AC-03" expectedErrorType="APP:INVALID_ACCOUNT_ID">
+    <munit:execution><set-variable variableName="recordId" value="#[123]"/><flow-ref name="validate-account-id-process"/></munit:execution>
+  </munit:test>
+  <munit:test name="validate-account-id-fifteen-characters" description="AC-03 boundary">
+    <munit:execution><set-variable variableName="recordId" value="001XXXXXXXXXXXX"/><flow-ref name="validate-account-id-process"/></munit:execution>
+    <munit:validation><munit-tools:assert-that expression="#[vars.recordId]" is="#[MunitTools::equalTo('001XXXXXXXXXXXX')]"/></munit:validation>
+  </munit:test>
+  <munit:test name="validate-account-data-null" description="AC-05" expectedErrorType="APP:ACCOUNT_DATA_INVALID">
+    <munit:execution><set-variable variableName="account" value="#[null]"/><flow-ref name="validate-account-data-process"/></munit:execution>
+  </munit:test>
+  <munit:test name="validate-account-data-blank-name" description="AC-05" expectedErrorType="APP:ACCOUNT_DATA_INVALID">
+    <munit:execution><set-variable variableName="account" value="#[{Id: '001XXXXXXXXXXXXAAA', Name: '   '}]"/><flow-ref name="validate-account-data-process"/></munit:execution>
+  </munit:test>
+  <munit:test name="validate-account-data-malformed-revenue" description="AC-05" expectedErrorType="APP:ACCOUNT_DATA_INVALID">
+    <munit:execution><set-variable variableName="account" value="#[{Id: '001XXXXXXXXXXXXAAA', Name: 'Acme', AnnualRevenue: 'not-a-number'}]"/><flow-ref name="validate-account-data-process"/></munit:execution>
+  </munit:test>
+  <munit:test name="validate-account-data-malformed-date" description="AC-05" expectedErrorType="APP:ACCOUNT_DATA_INVALID">
+    <munit:execution><set-variable variableName="account" value="#[{Id: '001XXXXXXXXXXXXAAA', Name: 'Acme', LastModifiedDate: 'not-a-date'}]"/><flow-ref name="validate-account-data-process"/></munit:execution>
+  </munit:test>
+  <munit:test name="account-mapping-optionals-and-escaping" description="AC-02 AC-13">
+    <munit:execution>
+      <set-variable variableName="account" value="#[{Id: '001XXXXXXXXXXXXAAA', Name: 'Acme &lt;script&gt; &amp; Co', Phone: '  '}]"/>
+      <flow-ref name="validate-account-data-process"/>
+      <set-payload value="#[%dw 2.0 import model, html from dwl::AccountDocument output application/java var document = model(vars.account, '2026-11-25T08:30:00Z', 'safe-correlation') --- {document: document, html: html('&lt;p&gt;{{accountName}}&lt;/p&gt;', document)}]"/>
+    </munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[payload.document.phone]" is="#[MunitTools::equalTo('N/A')]"/>
+      <munit-tools:assert-that expression="#[payload.document.annualRevenue]" is="#[MunitTools::equalTo('0')]"/>
+      <munit-tools:assert-that expression="#[payload.html]" is="#[MunitTools::equalTo('&lt;p&gt;Acme &amp;lt;script&amp;gt; &amp;amp; Co&lt;/p&gt;')]"/>
+    </munit:validation>
+  </munit:test>
+  <munit:test name="sap-extension-fails-closed" description="AC-29" expectedErrorType="APP:FEATURE_DISABLED">
+    <munit:execution><flow-ref name="sap-enrichment-disabled-extension"/></munit:execution>
+  </munit:test>
+</mule>

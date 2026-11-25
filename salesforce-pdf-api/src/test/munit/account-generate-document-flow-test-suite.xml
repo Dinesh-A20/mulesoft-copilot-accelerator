@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+  <munit:config name="document-process-test-config"/>
+  <sub-flow name="initialize-document-test">
+    <java:invoke-static class="com.enterprise.pdf.RuntimeSupport" method="deadline()" target="deadline"/>
+    <set-variable variableName="startedMs" value="#[now() as Number {unit: 'milliseconds'}]"/>
+    <set-variable variableName="requestCorrelation" value="test-correlation"/>
+    <set-variable variableName="transactionId" value="test-transaction"/>
+    <set-variable variableName="requestMethod" value="GET"/>
+    <set-variable variableName="routeTemplate" value="/documents/{recordId}"/>
+    <set-variable variableName="outboundHeaders" value="#[{'X-Correlation-ID': 'test-correlation'}]"/>
+    <set-variable variableName="recordId" value="001XXXXXXXXXXXXAAA"/>
+    <set-variable variableName="logFlow" value="document-test"/>
+  </sub-flow>
+  <munit:test name="document-real-process-path" description="AC-01 AC-18 AC-20 AC-23: actual business modules and renderer; only external boundaries mocked">
+    <munit:behavior>
+      <munit-tools:mock-when processor="salesforce:query">
+        <munit-tools:then-return><munit-tools:payload value="#[readUrl('classpath://account-complete.json', 'application/json')]" mediaType="application/java"/></munit-tools:then-return>
+      </munit-tools:mock-when>
+      <munit-tools:mock-when processor="anypoint-mq:publish"><munit-tools:then-return><munit-tools:payload value="#['accepted']"/></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
+      <munit-tools:spy processor="java:invoke-static">
+        <munit-tools:with-attributes><munit-tools:with-attribute attributeName="method" whereValue="render(java.lang.String,java.lang.String,java.lang.String,java.lang.Long)"/></munit-tools:with-attributes>
+        <munit-tools:before-call>
+          <munit-tools:assert-that expression="#[payload contains '&amp;lt;script&amp;gt;']" is="#[MunitTools::equalTo(true)]"/>
+          <munit-tools:assert-that expression="#[payload contains '&lt;script&gt;']" is="#[MunitTools::equalTo(false)]"/>
+        </munit-tools:before-call>
+      </munit-tools:spy>
+    </munit:behavior>
+    <munit:execution><flow-ref name="initialize-document-test"/><flow-ref name="account-generate-document-process"/></munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo(200)]"/>
+      <munit-tools:assert-that expression="#[payload as String {encoding: 'ISO-8859-1'} startsWith '%PDF-']" is="#[MunitTools::equalTo(true)]"/>
+      <munit-tools:assert-that expression="#[vars.outboundHeaders.'Content-Type']" is="#[MunitTools::equalTo('application/pdf')]"/>
+      <munit-tools:verify-call processor="salesforce:query" times="1"/>
+      <munit-tools:verify-call processor="flow-ref" times="0"><munit-tools:with-attributes><munit-tools:with-attribute attributeName="name" whereValue="sap-enrichment-disabled-extension"/></munit-tools:with-attributes></munit-tools:verify-call>
+    </munit:validation>
+  </munit:test>
+  <munit:test name="salesforce-account-not-found" description="AC-04" expectedErrorType="APP:NOT_FOUND">
+    <munit:behavior>
+      <munit-tools:mock-when processor="salesforce:query"><munit-tools:then-return><munit-tools:payload value="#[[]]" mediaType="application/java"/></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution><flow-ref name="initialize-document-test"/><flow-ref name="account-generate-document-process"/></munit:execution>
+  </munit:test>
+  <munit:test name="salesforce-connectivity-exhaustion" description="AC-07 AC-10: retries constrained by remaining budget" expectedErrorType="JAVA:INVOCATION">
+    <munit:behavior>
+      <munit-tools:mock-when processor="salesforce:query"><munit-tools:then-return><munit-tools:error typeId="SALESFORCE:CONNECTIVITY"/></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution><flow-ref name="initialize-document-test"/><flow-ref name="account-generate-document-process"/></munit:execution>
+  </munit:test>
+  <munit:test name="salesforce-authentication-not-retried" description="AC-08" expectedErrorType="SALESFORCE:INVALID_SESSION">
+    <munit:behavior>
+      <munit-tools:mock-when processor="salesforce:query"><munit-tools:then-return><munit-tools:error typeId="SALESFORCE:INVALID_SESSION"/></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution><flow-ref name="initialize-document-test"/><flow-ref name="account-generate-document-process"/></munit:execution>
+  </munit:test>
+  <munit:test name="health-has-no-downstream" description="AC-15">
+    <munit:execution><flow-ref name="health-get-process"/></munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[payload]" is="#[MunitTools::equalTo({status: 'UP'})]"/>
+      <munit-tools:verify-call processor="salesforce:query" times="0"/>
+      <munit-tools:verify-call processor="anypoint-mq:publish" times="0"/>
+    </munit:validation>
+  </munit:test>
+</mule>

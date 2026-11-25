@@ -1,0 +1,14 @@
+[
+  {
+    "Id": "001XXXXXXXXXXXXAAA",
+    "Name": "Acme <script> & Company",
+    "Phone": "+1-555-123-4567",
+    "Website": "www.example.invalid",
+    "Type": "Customer",
+    "Industry": "Manufacturing",
+    "BillingCity": "Example City",
+    "BillingCountry": "Example Country",
+    "AnnualRevenue": 2500000,
+    "LastModifiedDate": "2026-11-25T08:30:00Z"
+  }
+]

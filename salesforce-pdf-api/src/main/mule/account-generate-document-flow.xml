@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+  <flow name="account-generate-document-process" doc:description="FR-04 FR-06 FR-10 DR-01..15">
+    <flow-ref name="validate-account-id-process"/>
+    <flow-ref name="validate-deadline-process"/>
+    <flow-ref name="salesforce-account-get-system"/>
+    <flow-ref name="validate-account-data-process"/>
+    <set-variable variableName="generatedTimestamp" value="#[now()]"/>
+    <set-variable variableName="logFlow" value="account-generate-document-process"/>
+    <set-variable variableName="logStatus" value="TRANSFORMATION_START"/>
+    <flow-ref name="log-metadata-process"/>
+    <ee:transform doc:description="DR-01..11"><ee:variables>
+      <ee:set-variable variableName="document" resource="dwl/account-to-document.dwl"/>
+    </ee:variables></ee:transform>
+    <ee:transform doc:description="DR-12 DR-13 SEC-06"><ee:message>
+      <ee:set-payload resource="dwl/document-to-html.dwl"/>
+    </ee:message></ee:transform>
+    <set-variable variableName="logStatus" value="TRANSFORMATION_END"/>
+    <flow-ref name="log-metadata-process"/>
+    <flow-ref name="pdf-render-document-process"/>
+    <flow-ref name="validate-pdf-response-process"/>
+    <set-variable variableName="pdfBytes" value="#[sizeOf(payload)]"/>
+    <set-variable variableName="responseBytes" value="#[vars.pdfBytes]"/>
+    <set-variable variableName="httpStatus" value="#[200]"/>
+    <set-variable variableName="responseMediaType" value="application/pdf"/>
+    <set-variable variableName="outboundHeaders" value="#[vars.outboundHeaders ++ {'Content-Type': 'application/pdf'}]"/>
+    <remove-variable variableName="account"/><remove-variable variableName="document"/><remove-variable variableName="recordId"/>
+    <set-variable variableName="businessEvent" value="PDF_GENERATED"/>
+    <flow-ref name="schedule-business-event-process"/>
+  </flow>
+</mule>

@@ -1,0 +1,18 @@
+# DEP-05, ERR-07, NFR-02, FR-23: non-secret accelerator defaults.
+application:
+  name: "salesforce-pdf-api"
+http:
+  host: "0.0.0.0"
+  port: "8082"
+salesforce:
+  connection-timeout: "5"
+  read-timeout: "10"
+  login-timeout: "5"
+  pool-size: "10"
+mq:
+  success-queue: "account-pdf-generated"
+  failure-queue: "account-pdf-failed"
+  connection-timeout: "1000"
+  client-timeout: "4000"
+sap:
+  enabled: "false"
