@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+  <sub-flow name="salesforce-opportunity-get-system" doc:description="FR-31 FR-34 FR-35 SEC-30 ERR-30">
+    <salesforce:describe-sobject config-ref="salesforce-account-config" type="Opportunity" readTimeout="${etl.read-timeout}" target="etlSchema">
+      <reconnect frequency="${etl.retry-delay-ms}" count="${etl.retry-count}"/>
+    </salesforce:describe-sobject>
+    <set-variable variableName="etlFields" value="#[%dw 2.0 import fieldsFrom from dwl::OpportunityCsv output application/java --- fieldsFrom(vars.etlSchema)]"/>
+    <salesforce:query config-ref="salesforce-account-config" readTimeout="${etl.read-timeout}" target="etlRecords" doc:description="NFR-30: one-pass connector paging; no repeatable disk or full-result buffer">
+      <non-repeatable-iterable/>
+      <reconnect frequency="${etl.retry-delay-ms}" count="${etl.retry-count}"/>
+      <salesforce:salesforce-query>#[%dw 2.0 import queryFor from dwl::OpportunityCsv output application/java --- queryFor(vars.etlFields, p('etl.cutoff') as DateTime)]</salesforce:salesforce-query>
+    </salesforce:query>
+    <remove-variable variableName="etlSchema"/>
+  </sub-flow>
+</mule>

@@ -1,12 +1,13 @@
-# Project Context Instruction: Salesforce Account PDF API
+# Project Context Instruction: Salesforce Account PDF API and Local Opportunity Export
 
 | Field | Value |
 | --- | --- |
 | Status | Approved |
-| Version | 1.2 |
-| Prepared on | 2026-11-25 |
-| Approved by | @Dinesh-A20 |
-| Approved on | 2026-11-25 |
+| Version | 1.6 |
+| Prepared on | 2026-11-26 |
+| Approved by | @ManishajhCG |
+| Approved on | 2026-11-26 |
+| Previous approved baseline | 1.5, approved 2026-11-26 by @ManishajhCG |
 | Project root | `salesforce-pdf-api/` |
 
 This document is the single source of truth for design, implementation, tests,
@@ -20,10 +21,16 @@ The earlier Salesforce Excel Export context does not apply to this application.
   platforms retrieve a current Salesforce Account summary as a PDF by Account ID.
 - **BO-02**: Generate a confidential business document on demand without storing
   it or modifying Salesforce.
+- **BO-03**: Let the local application user obtain a daily CSV of Salesforce
+  sandbox Opportunities for local use, without changing Salesforce or the
+  existing Account PDF, MQ, and disabled SAP behavior.
 - Success: a valid, accessible Account with complete mandatory fields produces
   an immediate PDF containing the specified data. Failures return consistent JSON.
 - Performance and availability are design objectives requiring release validation,
   not claims established by generated code.
+- Opportunity-export success: a completed dated CSV contains every retrieved
+  non-deleted Opportunity changed since the fixed cutoff, with all readable
+  fields. A failed export never publishes a partial successful file.
 
 ## 2. Systems and Integration
 
@@ -31,10 +38,10 @@ The earlier Salesforce Excel Export context does not apply to this application.
 | --- | --- | --- |
 | FR-01 | Source | Salesforce Account, read only, using OAuth 2.0 JWT Bearer |
 | FR-02 | Output | PDF generated in application with OpenHTMLToPDF from an HTML template |
-| FR-03 | Trigger | Synchronous REST request; no scheduler, batch, or event trigger |
+| FR-03 | Trigger | Account PDF remains synchronous REST only; the separate local Opportunity scheduler is authorized only by FR-30..35 |
 | FR-04 | Retrieval | Retrieve only the requested Account and listed fields; no related records |
 | FR-05 | Architecture | One deployable application with thin Experience/APIKit routing, Process orchestration, and isolated Salesforce System flows |
-| FR-06 | Persistence | No document, Account, local-session, or business-data persistence; no PDF/Account cache |
+| FR-06 | Persistence | No document, Account, local-session, or PDF/Account cache persistence; local Opportunity CSV output is the sole business-data persistence exception, under FR-32 and SEC-30..32 |
 | FR-07 | Renderer isolation | App-owned local child JVM per active render; Java support code authorized; HTML/PDF passed only over memory pipes, not business-data files |
 | FR-08 | Validation layer | Dedicated reusable validation subflows before business processing and response generation; enforce ID, mandatory data, correlation metadata, PDF size, and enabled-feature preconditions |
 | FR-09 | Success contract alternatives | Only HTTP 200 PDF bytes enabled; JSON/Base64 wrappers documented only; download-link responses prohibited without a separately approved persistence change |
@@ -61,6 +68,28 @@ Publication outcomes never rewrite the completed document/error response. Failur
 publication errors do not recursively generate failure events. Boundary failures
 at API Manager that never enter Mule cannot initiate an application MQ publish;
 policy telemetry covers these, with integration behavior requiring validation.
+
+### Local Opportunity ETL delta
+
+These decisions replace the earlier discovery proposals for incremental
+watermarks, failed-original-snapshot replay, version deduplication, and skipping
+a second successful execution on the same date. Those proposals are not approved
+requirements and must not be implemented.
+
+| ID | Capability | Decision |
+| --- | --- | --- |
+| FR-30 | Schedule | Separate job in this application, daily at 09:00 UTC; no startup catch-up if the application was stopped; no new HTTP trigger |
+| FR-31 | Extraction | Read non-deleted Salesforce sandbox Opportunities with LastModifiedDate >= 2026-11-25T00:00:00Z on every execution; no additional record filter or record-count cap; no source writes |
+| FR-32 | Local output | Readable CSV in C:\Users\ManishaJha\Downloads\mulesoft-copilot-accelerator\salesforce-pdf-api\csv, named opportunities-YYYY-MM-DD.csv using the execution's UTC date |
+| FR-33 | Same-day execution | Do not skip because the completed daily CSV exists; replace it only after the new export has completed successfully; an unsuccessful replacement preserves the previous completed CSV |
+| FR-34 | State and recovery | No persistent watermark, checkpoints, Object Store, replay queue, failed-row snapshots, or ETL metadata files; every run re-queries the fixed cutoff, including after restart |
+| FR-35 | Source schema | Discover all fields readable by the JWT identity, including custom fields, on each run; use that field set consistently throughout that export; do not silently omit unsupported/readable fields |
+
+The export is a repeated fixed-cutoff extraction, not a durable incremental ETL.
+Records may repeat across daily files, and output volume can grow beyond the
+expected daily change volume. A later run retrieves current Salesforce values,
+not original versions from a failed run. No historical-version, point-in-time
+snapshot, or exact failed-version recovery guarantee is made.
 
 ### Business-event contract
 
@@ -135,6 +164,22 @@ not silent defaults. Do not query CurrencyIsoCode or assume a currency.
 All Account fields, contact information, revenue, and generated PDFs are
 Confidential Business Data/Documents. No related Contact records are retrieved.
 
+### Opportunity CSV mapping
+
+- **DR-30**: Preserve readable Salesforce Opportunity field API names as CSV
+  column headers. Include Id and LastModifiedDate; no field renaming, Account
+  enrichment, related-object traversal, or record upsert into a prior CSV.
+- **DR-31**: Comma-separated UTF-8 CSV with a header. Null values become blank
+  cells; date/date-time values use ISO formats, with date-times in UTC; numeric
+  values use plain decimal notation. Preserve source text, including custom
+  values. Escape commas, quotes, and embedded newlines using CSV quoting.
+- **DR-32**: Structured values are serialized as JSON in one CSV cell, then CSV
+  escaped. No silent truncation, lossy scalar coercion, or field exclusion.
+- **DR-33**: An empty successful query creates a header-only dated CSV using the
+  discovered field set. The output contains source values as returned during
+  extraction; Salesforce changes during a long run do not establish a consistent
+  historical snapshot.
+
 ## 5. Error Handling and Reliability
 
 | ID | Condition | HTTP / error code | Behavior |
@@ -187,6 +232,27 @@ Authoritative timing, explicitly confirmed after discovery:
 - **ERR-23**: Preserve the existing Salesforce/render/overall deadline errors.
   MQ does not extend those deadlines or delay the caller. No additional async
   grace period is approved.
+
+- **ERR-30**: ETL may retry temporary Salesforce connection/availability failures
+  at most twice, 30 seconds apart, for three attempts total per failed source
+  operation. Do not add hidden connector retries to this allowance. This is
+  separate from, and must not change, the PDF API's retries or 20-second deadline.
+- **ERR-31**: Authentication, authorization, invalid query, schema/serialization,
+  configuration, or disk/file errors have no immediate retries. After source
+  retries are exhausted, or any row/file operation fails, fail the whole export,
+  log safe metadata, and publish no new completed CSV.
+- **ERR-32**: Write a temporary output CSV and publish/replace the completed dated
+  file only after the entire export has succeeded. A failure preserves an older
+  completed file and cleans up the current attempt's owned temporary output
+  where possible. Cleanup failures are explicitly logged, not treated as success.
+  Temporary output is not a checkpoint and is never resumed after restart.
+- **ERR-33**: No row-level partial success or original-snapshot replay. The next
+  daily execution queries again from the fixed cutoff. Changed or deleted source
+  versions may therefore be unrecoverable. No immediate whole-job rescheduling,
+  startup catch-up, or additional notification channel is authorized.
+- **ERR-34**: Only one ETL execution may be active in the local application
+  instance; an overlapping scheduled invocation is skipped with metadata logging.
+  No durable lock or distributed/multi-instance execution guarantee is added.
 
 ## 6. Non-Functional Requirements
 
@@ -250,6 +316,26 @@ Authoritative timing, explicitly confirmed after discovery:
   processor coverage; mocked external dependencies do not substitute for real
   internal route-to-business orchestration.
 
+- **NFR-30**: Expect approximately 1 million changed Opportunities per day, with
+  no extraction cap. Because every execution starts at the fixed cutoff, total
+  rows per CSV may exceed 1 million and grow over time. Use supported paginated/
+  streaming extraction and bounded-memory CSV processing; do not materialize
+  the full result set or persist a separate business-data spool/replay store.
+- **NFR-31**: Preserve on-demand PDF functionality while ETL runs, including its
+  existing deadlines, capacities, MQ behavior, and disabled SAP boundary. No
+  strict ETL completion SLA is required for the initial local version. Million-row
+  extraction, accumulated-volume feasibility, memory, disk, Salesforce limits,
+  and concurrent PDF behavior require measured validation, not just mocked tests.
+- **NFR-32**: Local structured ETL logs contain correlation/run identifier,
+  timestamp, flow, environment, safe status/error code, row count, retry count,
+  and duration only. No field values, record IDs, raw query results, secrets, or
+  raw exceptions. Log start/completion/failure and overlap skips. No email, new
+  MQ events, or cloud ETL dashboard/alert provisioning.
+- **NFR-33**: ETL availability follows the running local application. No separate
+  HA, RTO/RPO, missed-schedule recovery, or historical-version recovery objective.
+  Tests must cover extraction/mapping/output failure and preservation of old CSVs;
+  existing measured coverage gates and PDF regression requirements remain.
+
 ## 7. Security
 
 - **SEC-01**: JWT OAuth bearer authentication on every endpoint. Validate signature,
@@ -261,8 +347,9 @@ Authoritative timing, explicitly confirmed after discovery:
   before QA/PROD promotion. Verify normalized 401 responses and correlation headers
   for policy-rejected requests, which may not enter application flows.
 - **SEC-03**: Salesforce OAuth 2.0 Connected App JWT Bearer only. Least-privilege
-  integration identity limited to Account and required fields. No authorization-code,
-  username/password, or resource-owner-password fallback.
+  integration identity limited to Account and required fields, with the additional
+  sandbox Opportunity read permission authorized by SEC-30 for local ETL only.
+  No authorization-code, username/password, or resource-owner-password fallback.
 - **SEC-04**: TLS 1.2 or higher, HTTPS only, certificate validation, no insecure
   protocols/ciphers. Externalize all environment-specific configuration.
 - **SEC-05**: Mule Secure Configuration Properties and Anypoint Secrets Manager,
@@ -274,7 +361,8 @@ Authoritative timing, explicitly confirmed after discovery:
   embedded assets; no remote HTTP, Internet/internal URLs, CSS/image/font download,
   JavaScript, or arbitrary filesystem access. Enforce resource isolation in code,
   not just by convention. Never log rendered HTML/PDF.
-- **SEC-07**: No business-data retention. Mask/omit confidential data in all
+- **SEC-07**: No Account/PDF business-data retention; the local Opportunity CSV
+  exception is limited to SEC-31..32. Mask/omit confidential data in all
   technical logs, audit events, traces, tests, and error responses. Use only
   sanitized test data. Validate/bound correlation IDs and request input.
 - **SEC-20**: MQ Connected App credentials externalized through Mule Secure
@@ -284,6 +372,21 @@ Authoritative timing, explicitly confirmed after discovery:
 - **SEC-21**: MQ and business telemetry carry sanitized metadata only. Do not
   implement SAP credentials, configuration, or network permissions before a
   separately approved SAP contract.
+
+- **SEC-30**: Reuse the existing Salesforce JWT Connected App/integration
+  identity against a sandbox, with Opportunity and field read access provisioned
+  outside source control. Keep JWT keys, principal, consumer key, store password,
+  and endpoints externalized using the existing secure configuration mechanisms.
+  Do not collect or commit live credentials or production hostnames.
+- **SEC-31**: Opportunity output may contain confidential/financial data and any
+  other sensitive values exposed by readable fields. The user explicitly chose
+  no CSV masking, application-level storage encryption, or spreadsheet-formula
+  neutralization for this local version. Preserve values; document the risk of
+  opening untrusted formula-like CSV cells in spreadsheet applications.
+- **SEC-32**: Retain completed CSVs until manual cleanup; no automatic deletion
+  policy. Keep CSVs and temporary export files out of Git. The output stays on the
+  specified local machine; cloud export, upload, and external distribution are
+  out of scope. Metadata-only logging and sanitized test data remain mandatory.
 
 ## 8. Deployment and Deliverables
 
@@ -326,6 +429,18 @@ Authoritative timing, explicitly confirmed after discovery:
   download-link patterns, duplicate handling, caching rationale, pools/reconnection,
   and why SAP does not run.
 
+- **DEP-30**: ETL is local-only and explicitly disabled in CloudHub DEV/QA/PROD.
+  Enabling local ETL must not enable SAP or change existing API routes/security.
+  Cloud startup must not require Opportunity-only local paths or secrets.
+- **DEP-31**: Deliver separate scheduler, Opportunity extraction, CSV processing,
+  shared configuration, and focused MUnit responsibilities within the existing
+  modular application. Externalize the enabled flag, schedule/timezone, cutoff,
+  output location, and retry settings. No pipeline/deployment expansion for ETL.
+- **DEP-32**: Provide local setup/run documentation and Studio-local MUnit support
+  using dummy configuration and mocked Salesforce, not live sandbox calls or
+  mandatory command-line -D properties. Document output replacement, failure/
+  restart limitations, CSV risks, manual cleanup, and measured/unverified evidence.
+
 ## 9. Constraints, Dependencies, and Out of Scope
 
 - **CON-01**: No technical artifacts until explicit approval of this version.
@@ -338,8 +453,10 @@ Authoritative timing, explicitly confirmed after discovery:
   only by FR-20..28. MQ publication is now in scope; actual SAP integration
   remains out of scope beyond its disabled extension boundary. Database access,
   customer-order processing, Excel export, child/related records, external PDF
-  SaaS, PDF storage/archive, Account/PDF cache, schedulers/batch, autoscaling, and
-  external API consumers remain excluded. Do not add unused connectors, mocks,
+  SaaS, PDF storage/archive, Account/PDF cache, autoscaling, and external API
+  consumers remain excluded. The scheduler exclusion is superseded only by the
+  local Opportunity export in FR-30..35; other schedulers/batch jobs remain excluded.
+  Do not add unused connectors, mocks,
   or error branches for still-excluded systems.
 - **CON-05**: Comments explain non-obvious behavior and requirement traceability,
   not every processor. Preserve other repository projects unchanged.
@@ -362,14 +479,40 @@ Authoritative timing, explicitly confirmed after discovery:
   add criteria rather than replacing PDF functionality. This context update does
   not authorize SAP enablement or waive the Proposed ADR-001 verification gate.
 
+- **CON-30**: This delta authorizes only the described local Opportunity CSV job.
+  No persistent ETL state, original-snapshot replay, incremental watermark,
+  version-deduplication store, database, new REST endpoint, related-object
+  extraction, production Salesforce export, or cloud filesystem output.
+- **CON-31**: Keep existing IDs, Account/PDF acceptance criteria, and unrelated
+  user worktree changes. Scope amendments above do not waive existing production
+  blockers. If supported Salesforce operations cannot extract all readable
+  fields at the required scale, report the limitation and return to discovery
+  before changing the approved field/volume semantics.
+- **CON-32**: A small application-owned Java filesystem helper is authorized for
+  temporary CSV creation and atomic publication, with String inputs/outputs.
+  This is a narrow extension of the Java-support exception, not authorization
+  for business logic in Java or non-Mule test clients. Do not open internal JDK
+  modules to work around WindowsPath reflection restrictions.
+
 ## 10. Accelerator Defaults Applied
 
 - Maven, Mule Maven Plugin, APIKit/RAML 1.0, DataWeave 2.0, lowercase kebab-case names.
-- Mandatory modular layout: listener/APIKit routes in `main-flow.xml`; one business
-  flow per dedicated XML; shared capability subflows and named error handlers;
-  configuration-only XML; shallow acyclic `flow-ref` graph.
-- Runtime XML directly under `src/main/mule`; resources under `src/main/resources`;
-  MUnit suites/fixtures under test folders. Verify all configuration modules load.
+- Mandatory modular layout: `src/main/mule/main/` contains entry/routing files
+  (`main-flow.xml` and independent source files such as the Opportunity scheduler);
+  `src/main/mule/implementation/` contains business flows, shared subflows, and
+  named error handlers; `src/main/mule/config/` contains global configuration only.
+  Main delegates to implementation through the existing registered `flow-ref` names.
+- Approved v1.5 configuration placement remains unchanged. This v1.6 draft proposes
+  moving existing flow XML only: `main-flow.xml` and
+  `opportunity-export-scheduler-flow.xml` to `main/`; the account document, health,
+  MQ publication, Opportunity export, PDF renderer, Salesforce System, disabled SAP,
+  common subflow, and common error-handler XML files to `implementation/`. Preserve
+  every filename, flow/subflow name, XML definition, reference, source behavior,
+  error scope, and public contract. No flow is split, merged, renamed, or behaviorally
+  changed. RAML/DataWeave/properties remain under `src/main/resources`; MUnit suites
+  and fixtures remain under test folders. Verify every nested Mule XML module loads
+  through the Mule Maven build and MUnit; update `mule-artifact.json` only if explicit
+  config discovery requires it.
 - Use repository-supported pinned runtime/connector/MUnit versions after validating
   compatibility; record actual selections in implementation documentation.
 - Structured metadata-only logging, correlation tracking, secret-property naming,
@@ -391,6 +534,19 @@ Authoritative timing, explicitly confirmed after discovery:
   Salesforce login timeout 5s; no hidden reconnection loops; 128 MB renderer heap
   cap plus native memory; 2 MB HTML/PDF pipe bounds. These are implementation
   choices, not measured sizing or a waiver of the approved deadlines.
+- ETL follows the same modular XML layout, System-flow credential isolation,
+  correlation logging, externalized configuration, and sanitized MUnit patterns.
+  Reuse compatible pinned connectors rather than changing the PDF dependency
+  versions without need.
+- CSV columns use deterministic alphabetical API-name order for each discovered
+  schema; UTF-8 without BOM, CRLF record separators, and standard CSV quoting.
+  Write an owned temporary output in the output directory, then atomically
+  publish/replace the completed filename where supported; do not substitute a
+  destructive delete-then-write fallback or use temporary output for recovery.
+- Extraction API, supported page sizes, connection budgets, and buffering are
+  implementation choices requiring connector verification. They must preserve
+  all-readable-field semantics, bounded memory, retry limits, and PDF behavior;
+  defaults and actual validation evidence must be recorded during implementation.
 
 ## 11. Assumptions and Open Items
 
@@ -428,6 +584,10 @@ generation, but blocking their applicable validation/deployment/release stages.
 | Event consumers, retention, residency and deduplication ownership | Business/platform owners, pending | Production release | Confirm policy and idempotent consumer handling; no guaranteed delivery assumed |
 | Bounded async publisher and in-flight cancellation | Application/platform owners, pending | Production release and verified deadline claim | Verify no response delay, no waiting queue, original 20s deadline, capacity skips, and lifecycle cleanup |
 | SAP contract and business/technical enablement | SAP/business owners, pending | Future SAP functionality only | Disabled boundary only; no connector/calls/configuration before separately approved contract |
+| Sandbox JWT Opportunity/field permissions and connectivity | Local user / Salesforce administrator | Live ETL verification only | Provision securely; mocked local MUnit does not establish live access |
+| Supported extraction of all readable fields at accumulated volume | Application implementer / Salesforce administrator | ETL feasibility and live scale verification | Verify supported describe/query/pagination behavior and API limits; no silent field exclusion or row cap |
+| Local output permissions, available disk, and safe replacement support | Local application user | Live file export and recovery verification | Confirm on the specified machine; failures leave previous completed output intact |
+| Million-row/accumulated-volume and overlapping PDF evidence | Application implementer / local user | Verified ETL performance claim | Measure actual memory, completeness, duration, disk usage, and PDF behavior; no fixed ETL SLA or production readiness claim |
 
 ## 12. Acceptance Criteria
 
@@ -465,6 +625,16 @@ generation, but blocking their applicable validation/deployment/release stages.
 | AC-30 | FR-08..09 | Request and response validation / proposed wrapper pattern | Reusable validation exercised; existing 400/502/size/correlation behavior preserved; only PDF success enabled, no wrappers or download links |
 | AC-31 | NFR-20..22 | Inspect supported pool/reconnection/streaming configuration and logs | Bounded supported pools/reconnection with no hidden retries; fresh Account data, no PDF/Account caching; allowed metadata only |
 | AC-32 | NFR-23..25, DEP-20..22 | Enterprise tests, diagrams, deployment/release review | Extended actual >=90% flow/processor evidence; diagrams/config/docs cover MQ/validation/SAP-disabled/events/monitoring; unresolved deployment/observability blockers remain explicit |
+| AC-33 | BO-03, FR-30, DEP-30 | Local job is enabled; clock reaches 09:00 UTC; application was stopped at an earlier scheduled time | Execute the daily job only while running; no startup catch-up; cloud-disabled job makes no Opportunity call or local file write |
+| AC-34 | FR-31, FR-34, DR-30 | Two daily runs, including a restart; source fixtures have records before, exactly at, and after the cutoff and a deleted record | Each run queries the same inclusive 2026-11-25T00:00:00Z cutoff; exclude pre-cutoff/deleted records; no 50-row cap, watermark advance, persistent state, or source writes |
+| AC-35 | FR-35, DR-30..33 | Readable custom fields change between runs; values contain nulls, Unicode, commas, quotes, newlines, structured JSON, date-times, decimals, and formula-like text | Discover each run; preserve current readable headers and values, UTC ISO dates, plain decimals, blank nulls, JSON-in-cell, valid UTF-8 CSV escaping, and unneutralized text; no silent field loss |
+| AC-36 | FR-32, DR-33 | Extraction succeeds with zero records | Publish opportunities-YYYY-MM-DD.csv in the configured local directory, containing the discovered header and no data rows |
+| AC-37 | FR-33, ERR-32 | Completed CSV already exists; another same-day export succeeds | Do not skip; publish the completed replacement only after all rows and output succeed; filename uses the execution's UTC date |
+| AC-38 | ERR-31..33, FR-33..34 | Source retries exhaust, a row cannot serialize, disk write/replacement fails, or application restarts mid-export | No new partial completed CSV; preserve any old completed CSV; safe failure/cleanup logs; no failed-snapshot persistence or resume; next daily run queries current source from the fixed cutoff |
+| AC-39 | ERR-30..31 | Temporary Salesforce connectivity failure versus authentication, permission, invalid-query, or disk error | Source operation has at most three attempts with 30-second retry delays for eligible transient errors only; noneligible failures have no immediate retry; PDF retry settings unchanged |
+| AC-40 | ERR-34, NFR-31..32 | An ETL execution remains active at the next scheduled invocation while PDF requests arrive | At most one ETL in the local instance; log and skip overlap; PDF routes, responses, capacities, deadlines, MQ and disabled SAP behavior remain intact |
+| AC-41 | NFR-30..31, CON-31 | Supported large paginated fixture/live extraction exceeds 1 million rows | No truncation or record cap; bounded-memory processing and complete CSV verified with actual evidence; field/API limits and accumulated-volume performance remain explicit until measured |
+| AC-42 | SEC-30..32, NFR-32..33, DEP-31..32 | Local configuration, Git status, logs, MUnit and documentation reviewed | External JWT secrets, sandbox-only ETL, ignored CSV/temp output, metadata-only logs, no replay/checkpoint store or new MQ/email, mocked Studio-local tests; actual test/coverage/scale results distinguished from unverified claims |
 
 ## 13. Traceability Matrix
 
@@ -475,19 +645,22 @@ validation remain open. Existing requirements and acceptance criteria are unchan
 
 | Requirements | Generated artifacts / registered responsibility | Tests / remaining verification | Documentation |
 | --- | --- | --- | --- |
-| FR-10..12, ERR-01..03, ERR-11..12 | `src/main/resources/api/account-pdf-api.raml`, `src/main/mule/main-flow.xml`, `http-config.xml` | `main-flow-test-suite.xml`: health, PDF and invalid-ID HTTPS tests passed on cached runtime; gateway policies unprovisioned, additional boundary tests required | `README.md`: API, security, main-to-business map |
-| FR-01..06, ERR-06..07, ERR-13 | `account-generate-document-flow.xml`, `salesforce-account-get-flow.xml`, `salesforce-config.xml` | `account-generate-document-flow-test-suite.xml`; in-flight composite Salesforce deadline not established | `README.md`: reliability/deadline release blocker |
+| FR-10..12, ERR-01..03, ERR-11..12 | `src/main/resources/api/account-pdf-api.raml`, `src/main/mule/main/main-flow.xml`, `src/main/mule/config/http-config.xml` | `main-flow-test-suite.xml`: health, PDF and invalid-ID HTTPS tests passed on cached runtime; gateway policies unprovisioned, additional boundary tests required | `README.md`: API, security, main-to-implementation map |
+| FR-01..06, ERR-06..07, ERR-13 | `src/main/mule/implementation/account-generate-document-flow.xml`, `src/main/mule/implementation/salesforce-account-get-flow.xml`, `src/main/mule/config/salesforce-config.xml` | `account-generate-document-flow-test-suite.xml`; in-flight composite Salesforce deadline not established | `README.md`: reliability/deadline release blocker |
 | DR-01..15, SEC-06 | `dwl/AccountDocument.dwl`, `account-to-document.dwl`, `document-to-html.dwl`, `templates/account-summary.html`, `RendererMain.java` | Mapping MUnit unexecuted; `RendererTest` passed for PDF text, escaping, pagination and resource restrictions | `README.md`: data rules and rendering |
-| ERR-04..10, ERR-14 | `common-validation-subflows.xml`, `common-error-handlers.xml`, `dwl/ErrorContract.dwl` | `common-validation-subflows-test-suite.xml`; renderer size/deadline/capacity Java tests passed; full status-path MUnit required | `README.md`: error matrix/diagram |
+| ERR-04..10, ERR-14 | `src/main/mule/implementation/common-validation-subflows.xml`, `src/main/mule/implementation/common-error-handlers.xml`, `dwl/ErrorContract.dwl` | `common-validation-subflows-test-suite.xml`; renderer size/deadline/capacity Java tests passed; full status-path MUnit required | `README.md`: error matrix/diagram |
 | NFR-01..06 | `RuntimeSupport.java`, `IsolatedRenderer.java`, connector budget guards | `ChildRendererIT` passed locally; defined load/spike/degradation plan unexecuted | `README.md`: performance/release checklist |
-| NFR-07..09, SEC-07 | `common-observability-subflows.xml`, `dwl/structured-log.dwl`, `log4j2.xml` | Safe field projection inspected; actual metric/trace/redaction integration unverified | `README.md`: monitoring/security review |
-| SEC-01..05, DEP-01..05 | `global-config.xml`, `http-config.xml`, `salesforce-config.xml`, environment/secure properties, `deployment/pom.xml`, root workflows | External IAM/policy/certificate/secrets and deployment prerequisites remain blockers | `README.md`: configuration/deployment |
+| NFR-07..09, SEC-07 | `src/main/mule/implementation/common-observability-subflows.xml`, `dwl/structured-log.dwl`, `log4j2.xml` | Safe field projection inspected; actual metric/trace/redaction integration unverified | `README.md`: monitoring/security review |
+| SEC-01..05, DEP-01..05 | `src/main/mule/config/global-config.xml`, `src/main/mule/config/http-config.xml`, `src/main/mule/config/salesforce-config.xml`, environment/secure properties, `deployment/pom.xml`, root workflows | External IAM/policy/certificate/secrets and deployment prerequisites remain blockers | `README.md`: configuration/deployment |
 | NFR-10, DEP-06..07, CON-01..05 | `pom.xml`, `renderer/pom.xml`, four MUnit suites, root build/promotion workflows | Java test evidence in README; focused HTTPS MUnit 3/3, 84.03% application coverage on cached Mule EE 4.13.0 / MUnit 3.7.5; pinned suite/gates not verified | `README.md`: exact evidence and blockers |
-| FR-07, CON-06 | `pdf-render-document-flow.xml`, `lifecycle-config.xml`, `RendererLifecycle.java`, `IsolatedRenderer.java`, `RendererMain.java`, standalone JAR packaging | `ChildRendererIT`: packaged PDF, expired deadline, unresponsive-child termination, sixth live render rejection; managed disposal/CloudHub still require runtime verification | `README.md`: Proposed ADR-001 |
-| FR-08..09 | `common-validation-subflows.xml`, `main-flow.xml` PDF-only route | Real-listener invalid-ID and PDF cases passed on cached runtime; validation suite unverified; no wrapper/link implementation | `README.md`: API and rejected alternatives |
-| FR-20..24, DR-20..22, ERR-20..23 | `common-event-subflows.xml`, `mq-publish-business-event-flow.xml`, `mq-config.xml`, `dwl/business-event.dwl` | MQ MUnit suite unexecuted; admission/idempotent release Java test passed; actual async/in-flight deadline unresolved | `README.md`: best effort and response independence |
-| FR-25..28, SEC-21 | `common-observability-subflows.xml`, `sap-enrichment-extension-flow.xml` unreferenced disabled boundary | `sap-extension-fails-closed` and no-SAP-call assertions generated; telemetry integration unverified | `README.md`: SAP and business events |
+| FR-07, CON-06 | `src/main/mule/implementation/pdf-render-document-flow.xml`, `src/main/mule/config/lifecycle-config.xml`, `RendererLifecycle.java`, `IsolatedRenderer.java`, `RendererMain.java`, standalone JAR packaging | `ChildRendererIT`: packaged PDF, expired deadline, unresponsive-child termination, sixth live render rejection; managed disposal/CloudHub still require runtime verification | `README.md`: Proposed ADR-001 |
+| FR-08..09 | `src/main/mule/implementation/common-validation-subflows.xml`, `src/main/mule/main/main-flow.xml` PDF-only route | Real-listener invalid-ID and PDF cases passed on cached runtime; validation suite unverified; no wrapper/link implementation | `README.md`: API and rejected alternatives |
+| FR-20..24, DR-20..22, ERR-20..23 | `src/main/mule/implementation/common-event-subflows.xml`, `src/main/mule/implementation/mq-publish-business-event-flow.xml`, `src/main/mule/config/mq-config.xml`, `dwl/business-event.dwl` | MQ MUnit suite unexecuted; admission/idempotent release Java test passed; actual async/in-flight deadline unresolved | `README.md`: best effort and response independence |
+| FR-25..28, SEC-21 | `src/main/mule/implementation/common-observability-subflows.xml`, `src/main/mule/implementation/sap-enrichment-extension-flow.xml` unreferenced disabled boundary | `sap-extension-fails-closed` and no-SAP-call assertions generated; telemetry integration unverified | `README.md`: SAP and business events |
 | NFR-20..25, SEC-20, DEP-20..22, CON-20..21 | Connector configs, metadata/custom metrics, environment files, `.github/workflows/salesforce-pdf-build.yml`, `salesforce-pdf-promote.yml` | Pool behavior, monitoring destinations, extended coverage and release gates require execution/provisioning | `README.md`: five diagrams and release plan |
+| BO-03, FR-30..35, DEP-30..31, CON-30..32 | `src/main/mule/main/opportunity-export-scheduler-flow.xml`: salesforce-opportunity-export-main; `src/main/mule/implementation/salesforce-opportunity-get-flow.xml`: salesforce-opportunity-get-system; `src/main/mule/implementation/opportunity-export-flow.xml`: opportunity-export-process; `src/main/mule/config/global-config.xml`, application/local YAML | Six ETL MUnit tests passed in fresh runners on cached Mule EE 4.13.0 / MUnit 3.7.5; nonlocal guard verified even with enabled/started overrides; sandbox and actual schedule/scale validation remain open | README local ETL setup, module map and limitations |
+| DR-30..33, SEC-31..32, FR-32..34, CON-32 | `dwl/OpportunityCsv.dwl`, `dwl/opportunity-to-csv.dwl`, `src/main/mule/config/file-config.xml`, `src/main/java/com/enterprise/etl/CsvFiles.java`, `.gitignore` | Real CSV round trip, UTC offsets, decimals, structured cells, nulls, Unicode/quoting/newlines, header-only output, same-day atomic replacement, 401 rows across batches, failed write and invalid value preserving old CSV passed; million-row evidence not established | README mapping, manual retention, CSV risk and filesystem support |
+| ERR-30..34, NFR-30..33, SEC-30, DEP-32 | `src/main/mule/implementation/common-error-handlers.xml`: opportunity-export-error-handler; `src/main/mule/implementation/common-opportunity-observability-subflows.xml`; per-operation reconnection; `scripts/setup-munit-studio.ps1`; two ETL MUnit suites | Five export tests: 0 failures/errors; one guard test: 0 failures/errors. Existing PDF HTTPS regression 3/3 passed. Export-only application coverage 18.89%; guard-only 0.56%; gates still fail. Combined runner redeployment hit existing renderer CLOSED state; fresh runners avoid it. Pinned runtime, actual connector retries, crash recovery and PDF overlap load remain unverified | README exact evidence, Studio launch, failure outcomes and open verification |
 
 ## 14. Change Log
 
@@ -498,3 +671,8 @@ validation remain open. Existing requirements and acceptance criteria are unchan
 | 1.2 | 2026-11-25 | Complete extended context explicitly approved: response-independent best-effort MQ, metadata events, disabled SAP boundary, dedicated validation, pools/reconnection, logging/metrics/dashboards and traceability; explicitly supersede only SAP/MQ exclusions | Context only at this stage; future flows, RAML, DW, MUnit, config, pipeline, diagrams/runbook | @Dinesh-A20 |
 | 1.2 | 2026-11-25 | Implementation artifact/defaults traceability populated; no requirement or acceptance-criterion changes. Renderer local tests passed; Mule/MUnit, in-flight connector deadlines and CloudHub remain explicit blockers | Application sources, tests, CI/deployment, README; approval status unchanged | Existing v1.2 approval |
 | 1.2 | 2026-11-25 | Recorded focused offline MUnit evidence and fixes for the approved PDF, health and error response contracts. Full pinned-runtime verification and coverage gate remain open | Main flow, error classification, MUnit suites, Maven/packaging configuration, README; approval status unchanged | Existing v1.2 approval |
+| 1.3 | 2026-11-26 | Complete delta explicitly approved: local-only daily sandbox Opportunity CSV. Confirmed 09:00 UTC, all readable fields, fixed inclusive cutoff on every run, no persistent state or original-snapshot replay, whole-export failure, two transient retries 30s apart, and successful same-day replacement; supersedes earlier incremental/replay/skip proposals only | Context approved; planned scheduler, Opportunity extraction, CSV mapping/output, ETL config/logging, Git exclusions, Studio-local MUnit, README; existing PDF/MQ/SAP behavior preserved | @ManishajhCG |
+| 1.4 | 2026-11-26 | Narrow Java filesystem-helper exception explicitly approved after direct WindowsPath invocation failed during MUnit. All v1.3 business requirements unchanged; no internal JDK module-opening workaround | Application-owned CSV filesystem support, calling flow and focused MUnit; existing PDF Java support unchanged | @ManishajhCG |
+| 1.4 | 2026-11-26 | Implemented approved ETL and populated traceability. Bounded CSV batches serialize before writing so conversion failures cannot silently publish partial output. Named handler emits explicit FAILED result and safe logs instead of exposing raw scheduler exceptions. Verified six ETL tests and three PDF regressions; exact coverage and fresh-runner limitation recorded without waiving gates | Scheduler, System/Process flows, filesystem helper, mappings, config, Git exclusions, two MUnit suites, Studio setup and README | Existing v1.4 approval; no business requirement change |
+| 1.5 | 2026-11-26 | Approved layout-only delta: move the six configuration-only XML files into `src/main/mule/config/`. No requirement, acceptance criterion, global element name, property or runtime behavior change | Six `*-config.xml` files (moved, contents unchanged), README module map, traceability paths; ETL and PDF MUnit suites verify nested loading | @ManishajhCG |
+| 1.6 | 2026-11-26 | Approved layout-only delta: relocate existing entry/source XML into `src/main/mule/main/`, and business, shared-subflow, and named-handler XML into `src/main/mule/implementation/`; preserve the approved `config/` directory. No flow split, rename, definition, reference, contract, or behavior change | Existing runtime Mule XML paths, README structure/module map, traceability paths, and Mule packaging/load verification; all MUnit suites remain in place | @ManishajhCG |

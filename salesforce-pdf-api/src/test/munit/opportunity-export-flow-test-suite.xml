@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:munit="http://www.mulesoft.org/schema/mule/munit" xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+  <munit:config name="opportunity-export-test-config"/>
+  <sub-flow name="initialize-opportunity-test">
+    <java:invoke-static class="java.lang.System" method="getProperty(java.lang.String)" target="etlTestTempRoot">
+      <java:args>#[{arg0: 'java.io.tmpdir'}]</java:args>
+    </java:invoke-static>
+    <set-variable variableName="etlOutputDirectory" value="#[vars.etlTestTempRoot ++ '\\munit-opportunity-' ++ uuid()]"/>
+    <file:create-directory config-ref="file-opportunity-config" directoryPath="#[vars.etlOutputDirectory]"/>
+    <set-variable variableName="etlObservedFailure" value="#[false]"/>
+  </sub-flow>
+  <sub-flow name="read-opportunity-test-output">
+    <file:read config-ref="file-opportunity-config" path="#[vars.etlOutputDirectory ++ '\\' ++ vars.etlFileName]" outputMimeType="text/plain" target="etlTestCsv"/>
+    <set-variable variableName="etlTestText" value="#[vars.etlTestCsv as String {encoding: 'UTF-8'}]"/>
+  </sub-flow>
+  <sub-flow name="cleanup-opportunity-test">
+    <file:delete config-ref="file-opportunity-config" path="#[vars.etlOutputDirectory ++ '\\' ++ vars.etlFileName]"/>
+    <file:delete config-ref="file-opportunity-config" path="#[vars.etlOutputDirectory]"/>
+  </sub-flow>
+  <munit:test name="opportunity-export-real-csv-and-replacement" description="AC-34 AC-35 AC-37: real scheduler-to-system/process path, CSV round trip and atomic same-day replacement; only Salesforce mocked">
+    <munit:behavior>
+      <munit-tools:mock-when processor="salesforce:describe-sobject">
+        <munit-tools:then-return><munit-tools:variables><munit-tools:variable key="etlSchema" value="#[readUrl('classpath://opportunity-schema.json', 'application/json')]"/></munit-tools:variables></munit-tools:then-return>
+      </munit-tools:mock-when>
+      <munit-tools:mock-when processor="salesforce:query">
+        <munit-tools:then-return><munit-tools:variables><munit-tools:variable key="etlRecords" value="#[readUrl('classpath://opportunities.json', 'application/json')]"/></munit-tools:variables></munit-tools:then-return>
+      </munit-tools:mock-when>
+      <munit-tools:spy processor="salesforce:query">
+        <munit-tools:before-call>
+          <munit-tools:assert-that expression="#[%dw 2.0 import queryFor from dwl::OpportunityCsv output application/java --- queryFor(vars.etlFields, p('etl.cutoff') as DateTime)]" is="#[MunitTools::equalTo('SELECT Amount, CloseDate, Details__c, Id, LastModifiedDate, Name, Notes__c FROM Opportunity WHERE LastModifiedDate &gt;= 2026-11-25T00:00:00Z ORDER BY Id')]"/>
+        </munit-tools:before-call>
+      </munit-tools:spy>
+    </munit:behavior>
+    <munit:execution>
+      <flow-ref name="initialize-opportunity-test"/>
+      <flow-ref name="salesforce-opportunity-export-main"/>
+      <flow-ref name="read-opportunity-test-output"/>
+      <set-variable variableName="etlFirstText" value="#[vars.etlTestText]"/>
+      <flow-ref name="salesforce-opportunity-export-main"/>
+      <flow-ref name="read-opportunity-test-output"/>
+    </munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[vars.etlRows]" is="#[MunitTools::equalTo(2)]"/>
+      <munit-tools:assert-that expression="#[vars.etlFileName]" is="#[MunitTools::equalTo('opportunities-' ++ ((vars.etlStarted &gt;&gt; |+00:00|) as String {format: 'yyyy-MM-dd'}) ++ '.csv')]"/>
+      <munit-tools:assert-that expression="#[vars.etlTestText]" is="#[MunitTools::equalTo(vars.etlFirstText)]"/>
+      <munit-tools:assert-that expression="#[read(vars.etlTestText, 'application/csv')[0].Name]" is="#[MunitTools::equalTo(readUrl('classpath://opportunities.json', 'application/json')[0].Name)]"/>
+      <munit-tools:assert-that expression="#[read(vars.etlTestText, 'application/csv')[0].Amount]" is="#[MunitTools::equalTo('100000')]"/>
+      <munit-tools:assert-that expression="#[read(vars.etlTestText, 'application/csv')[0].LastModifiedDate]" is="#[MunitTools::equalTo('2026-11-25T00:00:00.000Z')]"/>
+      <munit-tools:assert-that expression="#[%dw 2.0 output application/java --- read(read(vars.etlTestText, 'application/csv')[0].Details__c, 'application/json')]" is="#[MunitTools::equalTo({latitude: 12.5, longitude: 20})]"/>
+      <munit-tools:assert-that expression="#[read(vars.etlTestText, 'application/csv')[0].Notes__c]" is="#[MunitTools::equalTo('line one\r\nline two')]"/>
+      <munit-tools:assert-that expression="#[read(vars.etlTestText, 'application/csv')[1].Amount]" is="#[MunitTools::equalTo('')]"/>
+      <munit-tools:assert-that expression="#[read(vars.etlTestText, 'application/csv')[1].Name]" is="#[MunitTools::equalTo('=synthetic-text')]"/>
+      <munit-tools:verify-call processor="salesforce:query" times="2"/>
+      <flow-ref name="cleanup-opportunity-test"/>
+    </munit:validation>
+  </munit:test>
+  <munit:test name="opportunity-export-empty-header" description="AC-36: no synthetic blank row">
+    <munit:behavior>
+      <munit-tools:mock-when processor="salesforce:describe-sobject"><munit-tools:then-return><munit-tools:variables><munit-tools:variable key="etlSchema" value="#[readUrl('classpath://opportunity-schema.json', 'application/json')]"/></munit-tools:variables></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="salesforce:query"><munit-tools:then-return><munit-tools:variables><munit-tools:variable key="etlRecords" value="#[[]]"/></munit-tools:variables></munit-tools:then-return></munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution><flow-ref name="initialize-opportunity-test"/><flow-ref name="salesforce-opportunity-export-main"/><flow-ref name="read-opportunity-test-output"/></munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[vars.etlTestText]" is="#[MunitTools::equalTo('Amount,CloseDate,Details__c,Id,LastModifiedDate,Name,Notes__c\r\n')]"/>
+      <munit-tools:assert-that expression="#[vars.etlRows]" is="#[MunitTools::equalTo(0)]"/>
+      <flow-ref name="cleanup-opportunity-test"/>
+    </munit:validation>
+  </munit:test>
+  <munit:test name="opportunity-write-failure-preserves-old-csv" description="AC-38: failed append removes owned temporary output without replacing old CSV">
+    <munit:behavior>
+      <munit-tools:mock-when processor="salesforce:describe-sobject"><munit-tools:then-return><munit-tools:variables><munit-tools:variable key="etlSchema" value="#[readUrl('classpath://opportunity-schema.json', 'application/json')]"/></munit-tools:variables></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="salesforce:query"><munit-tools:then-return><munit-tools:variables><munit-tools:variable key="etlRecords" value="#[readUrl('classpath://opportunities.json', 'application/json')]"/></munit-tools:variables></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="file:write">
+        <munit-tools:with-attributes><munit-tools:with-attribute attributeName="doc:name" whereValue="Append Opportunity CSV batch"/></munit-tools:with-attributes>
+        <munit-tools:then-return><munit-tools:error typeId="FILE:ACCESS_DENIED"/></munit-tools:then-return>
+      </munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution>
+      <flow-ref name="initialize-opportunity-test"/>
+      <set-variable variableName="etlFileName" value="#['opportunities-' ++ ((now() &gt;&gt; |+00:00|) as String {format: 'yyyy-MM-dd'}) ++ '.csv']"/>
+      <file:write config-ref="file-opportunity-config" path="#[vars.etlOutputDirectory ++ '\\' ++ vars.etlFileName]"><file:content>#[ 'previous completed export' ]</file:content></file:write>
+      <flow-ref name="salesforce-opportunity-export-main"/>
+      <set-variable variableName="etlObservedFailure" value="#[payload.status == 'FAILED' and payload.errorCode == 'FILE:ACCESS_DENIED']"/>
+      <flow-ref name="read-opportunity-test-output"/>
+      <file:list config-ref="file-opportunity-config" directoryPath="#[vars.etlOutputDirectory]" target="etlRemainingFiles"/>
+    </munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[vars.etlObservedFailure]" is="#[MunitTools::equalTo(true)]"/>
+      <munit-tools:assert-that expression="#[vars.etlTestText]" is="#[MunitTools::equalTo('previous completed export')]"/>
+      <munit-tools:assert-that expression="#[%dw 2.0 output application/java --- sizeOf(vars.etlRemainingFiles)]" is="#[MunitTools::equalTo(1)]"/>
+      <munit-tools:verify-call processor="java:invoke-static" times="0"><munit-tools:with-attributes><munit-tools:with-attribute attributeName="method" whereValue="publish(java.lang.String,java.lang.String)"/></munit-tools:with-attributes></munit-tools:verify-call>
+      <flow-ref name="cleanup-opportunity-test"/>
+    </munit:validation>
+  </munit:test>
+  <munit:test name="opportunity-export-crosses-batch-boundaries" description="AC-34 AC-41: 401 rows exceed the old 50-row cap and cross three 200-row batches">
+    <munit:behavior>
+      <munit-tools:mock-when processor="salesforce:describe-sobject"><munit-tools:then-return><munit-tools:variables><munit-tools:variable key="etlSchema" value="#[readUrl('classpath://opportunity-schema.json', 'application/json')]"/></munit-tools:variables></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="salesforce:query">
+        <munit-tools:then-return><munit-tools:variables>
+          <munit-tools:variable key="etlRecords" value="#[(1 to 401) map ((index) -> readUrl('classpath://opportunities.json', 'application/json')[0] ++ {Id: '006' ++ (index as String {format: '000000000000'}) ++ 'AAA'})]"/>
+        </munit-tools:variables></munit-tools:then-return>
+      </munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution><flow-ref name="initialize-opportunity-test"/><flow-ref name="salesforce-opportunity-export-main"/><flow-ref name="read-opportunity-test-output"/></munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[vars.etlRows]" is="#[MunitTools::equalTo(401)]"/>
+      <munit-tools:assert-that expression="#[%dw 2.0 output application/java --- sizeOf(read(vars.etlTestText, 'application/csv'))]" is="#[MunitTools::equalTo(401)]"/>
+      <munit-tools:assert-that expression="#[read(vars.etlTestText, 'application/csv')[400].Id]" is="#[MunitTools::equalTo('006000000000401AAA')]"/>
+      <flow-ref name="cleanup-opportunity-test"/>
+    </munit:validation>
+  </munit:test>
+  <munit:test name="opportunity-invalid-value-fails-before-publication" description="AC-38: serialization errors cannot silently publish an empty or partial CSV">
+    <munit:behavior>
+      <munit-tools:mock-when processor="salesforce:describe-sobject"><munit-tools:then-return><munit-tools:variables><munit-tools:variable key="etlSchema" value="#[readUrl('classpath://opportunity-schema.json', 'application/json')]"/></munit-tools:variables></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="salesforce:query">
+        <munit-tools:then-return><munit-tools:variables><munit-tools:variable key="etlRecords" value="#[[readUrl('classpath://opportunities.json', 'application/json')[0] ++ {Amount: 'not-a-number'}]]"/></munit-tools:variables></munit-tools:then-return>
+      </munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution>
+      <flow-ref name="initialize-opportunity-test"/>
+      <set-variable variableName="etlFileName" value="#['opportunities-' ++ ((now() &gt;&gt; |+00:00|) as String {format: 'yyyy-MM-dd'}) ++ '.csv']"/>
+      <file:write config-ref="file-opportunity-config" path="#[vars.etlOutputDirectory ++ '\\' ++ vars.etlFileName]"><file:content>#[ 'previous completed export' ]</file:content></file:write>
+      <flow-ref name="salesforce-opportunity-export-main"/>
+      <set-variable variableName="etlObservedFailure" value="#[payload.status == 'FAILED']"/>
+      <flow-ref name="read-opportunity-test-output"/>
+    </munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[vars.etlObservedFailure]" is="#[MunitTools::equalTo(true)]"/>
+      <munit-tools:assert-that expression="#[vars.etlTestText]" is="#[MunitTools::equalTo('previous completed export')]"/>
+      <munit-tools:verify-call processor="java:invoke-static" times="0"><munit-tools:with-attributes><munit-tools:with-attribute attributeName="method" whereValue="publish(java.lang.String,java.lang.String)"/></munit-tools:with-attributes></munit-tools:verify-call>
+      <flow-ref name="cleanup-opportunity-test"/>
+    </munit:validation>
+  </munit:test>
+</mule>

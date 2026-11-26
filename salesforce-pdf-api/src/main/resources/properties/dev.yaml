@@ -3,3 +3,15 @@ deployment:
   replicas: "1"
 logging:
   level: "INFO"
+salesforce:
+  keystore: dummy.jks
+  certificate-alias: dummy
+  token-endpoint: dummy
+  audience: dummy
+  
+mq:
+  url: dummy
+  success-queue: "account-pdf-generated"
+  failure-queue: "account-pdf-failed"
+  connection-timeout: "1000"
+  client-timeout: "4000"

@@ -1,0 +1,16 @@
+# qa environment (non-secret values only). Replace placeholders before deploying.
+salesforce:
+  instanceUrl: "https://your-org--qa.sandbox.my.salesforce.com"
+  jwt:
+    principal: "integration.user@example.com"
+    tokenEndpoint: "https://test.salesforce.com/services/oauth2/token"
+    audienceUrl: "https://test.salesforce.com"
+
+smtp:
+  host: "smtp.office365.com"
+  from: "mule-notifications@example.com"
+
+notification:
+  email:
+    # Comma-separated list of recipients
+    to: "your.name@example.com"

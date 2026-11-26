@@ -1,0 +1,20 @@
+[
+  {
+    "Id": "006000000000001AAA",
+    "Name": "Synthetic, \"quoted\" \u00e9 opportunity",
+    "LastModifiedDate": "2026-11-25T05:30:00.000+0530",
+    "Amount": "1E+5",
+    "CloseDate": "2026-12-01",
+    "Details__c": {"latitude": 12.5, "longitude": 20},
+    "Notes__c": "line one\r\nline two"
+  },
+  {
+    "Id": "006000000000002AAA",
+    "Name": "=synthetic-text",
+    "LastModifiedDate": "2026-11-26T00:00:00Z",
+    "Amount": null,
+    "CloseDate": null,
+    "Details__c": null,
+    "Notes__c": null
+  }
+]

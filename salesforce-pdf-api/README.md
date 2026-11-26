@@ -33,7 +33,7 @@ Errors use `{status:"FAILED",errorCode,message,correlationId}`:
 | 504 | TIMEOUT | Salesforce/render/overall deadline exceeded |
 | 500 | INTERNAL_ERROR / PDF_SIZE_EXCEEDED | Unexpected failure or document >2 MB |
 
-## Project structure and main-to-business map
+## Project structure and main-to-implementation map
 
 ```text
 pom.xml / mule-artifact.json
@@ -42,16 +42,27 @@ renderer/
   src/main/java/com/enterprise/pdf/   child engine, process bridge, budgets/admission
   src/test/java/com/enterprise/pdf/   PDF and process isolation tests
 src/main/mule/
-  main-flow.xml                     listener and APIKit routes only
-  account-generate-document-flow.xml Process orchestration
-  salesforce-account-get-flow.xml    System read and classified retries
-  pdf-render-document-flow.xml       renderer bridge
-  health-get-flow.xml                runtime health
-  mq-publish-business-event-flow.xml System publication
-  sap-enrichment-extension-flow.xml  disabled, unreferenced extension
-  common-*-subflows.xml              validation, metadata logs/metrics, events
-  common-error-handlers.xml          named reusable handler
-  *-config.xml                      configuration only
+  main/
+    main-flow.xml                    listener and APIKit routes only
+    opportunity-export-scheduler-flow.xml scheduled ETL entry source
+  implementation/
+    account-generate-document-flow.xml PDF process orchestration
+    salesforce-account-get-flow.xml   System read and classified retries
+    salesforce-opportunity-get-flow.xml ETL System read
+    opportunity-export-flow.xml      CSV implementation
+    pdf-render-document-flow.xml     renderer bridge
+    health-get-flow.xml              runtime health
+    mq-publish-business-event-flow.xml System publication
+    sap-enrichment-extension-flow.xml disabled, unreferenced extension
+    common-*-subflows.xml            validation, metadata logs/metrics, events
+    common-error-handlers.xml        named reusable handlers
+  config/                           configuration-only XML
+    global-config.xml
+    http-config.xml
+    salesforce-config.xml
+    file-config.xml
+    mq-config.xml
+    lifecycle-config.xml
 src/main/resources/
   api/                              RAML, trait, error type
   dwl/                              models, HTML, events, log/error contracts
@@ -62,8 +73,10 @@ src/test/munit/ / src/test/resources/
 deployment/pom.xml                   artifact-only promotion
 ```
 
-All runtime XML files are directly under `src/main/mule`, loaded by Mule's default
-configuration discovery. `mule-artifact.json` deliberately has no partial `configs`
+Entry and APIKit routing XML is in `src/main/mule/main/`; business, shared-subflow,
+and named error-handler XML is in `src/main/mule/implementation/`; configuration-only
+XML is in `src/main/mule/config/`. Mule loads these nested runtime modules, as verified
+by the focused MUnit suites. `mule-artifact.json` deliberately has no partial `configs`
 list. Shared support classes are exported for the Java module.
 
 | Entry / shared name | Delegation / responsibility |
@@ -180,7 +193,7 @@ startup, the Mule-managed Spring lifecycle bean extracts **code only** into an
 owned temporary directory. Application disposal terminates owned children,
 stops the watchdog, removes the JVM shutdown hook and removes the code directory;
 JVM shutdown has a backup hook. HTML/PDF never go to a file; requests use memory
-pipes. `lifecycle-config.xml` contains configuration only, not a business flow.
+pipes. `config/lifecycle-config.xml` contains configuration only, not a business flow.
 
 At most five child processes live per replica, with nonblocking admission. Each
 has a 128 MB heap cap; native/metaspace costs are additional, so this is not a
@@ -258,10 +271,171 @@ MUnit uses the Mule Enterprise runtime. The POM declares the `MuleRepository`
 plugin repository; Maven `settings.xml` must contain credentials under the same
 server ID. Do not put repository credentials in the POM or this project.
 
+## Local daily Opportunity CSV (context v1.4, BO-03, FR-30..35)
+
+The existing PDF API now has a separate **local-only** Opportunity export:
+
+- Daily at **09:00 UTC**, while the application is running; no startup catch-up.
+- Salesforce sandbox, using the existing OAuth JWT Connected App and integration
+  identity. Provision Opportunity/field read permission in Salesforce.
+- Every run selects non-deleted Opportunities with
+  `LastModifiedDate >= 2026-11-25T00:00:00Z`. There is no 50-record limit.
+  This is **not incremental**: every run starts from the same cutoff, so records
+  repeat across days and output volume grows beyond the daily change volume.
+- Discover readable fields, including custom fields, each run. Preserve API-name
+  headers in alphabetical order; nulls are blank, structured values are JSON
+  cells, dates are ISO/UTC, and numbers use plain decimals. UTF-8 CSV uses commas,
+  CRLF, and quoting for embedded quotes/commas/newlines.
+- Output defaults to the project's `csv` directory, with filename
+  `opportunities-YYYY-MM-DD.csv` using the execution's UTC date. A second
+  successful same-day run replaces the completed file, not appends to it.
+- Write bounded batches to an owned `.part` file, then publish only after all
+  rows succeed. On failure, preserve any previous completed CSV and attempt
+  temporary-output cleanup. Atomic replacement must be supported by the local
+  filesystem; there is no destructive delete-then-write fallback.
+- No watermark, Object Store, checkpoint, failed-row store, or replay queue.
+  A later execution re-queries current source values, not failed original versions.
+  Interrupted temporary files are not resumed; inspect/remove leftover owned
+  `.opportunities-*.part` files manually when the application is stopped.
+- The internal job outcome is explicitly `COMPLETED` or `FAILED`. Failures are
+  logged with safe error codes and never emit a completed-file result; raw
+  exceptions are not passed to scheduler logging.
+
+### Running locally in Studio (DEP-30..32, SEC-30)
+
+Use an **application** run configuration, not the dummy MUnit launch. Set the
+environment property `mule.env` to `local` in Studio's run configuration.
+The local profile enables the scheduler; `dev`, `qa`, and `prod` default to
+disabled/stopped, with an additional local-environment guard.
+
+Provision the existing application TLS/API settings and these Salesforce values
+securely in that run configuration or encrypted secure properties:
+
+| Setting | Purpose |
+| --- | --- |
+| `salesforce.keystore`, `salesforce.certificate-alias` | Actual JWT signing keystore and alias; the local profile's `dummy.jks` is not a live credential |
+| `salesforce.secure.consumer-key` | Connected App client ID in encrypted secure properties |
+| `salesforce.secure.principal` | Authorized sandbox integration identity in encrypted secure properties |
+| `salesforce.secure.store-password` | Signing-store password in encrypted secure properties |
+| `secure.key`, `secure.file` | Existing encrypted-properties configuration; never use MUnit fixtures for live execution |
+| `salesforce.token-endpoint`, `salesforce.audience` | Public sandbox defaults in the local profile; externally override if your sandbox requires its approved domain |
+| `etl.output-directory` | Writable local output directory |
+| `etl.schedule`, `etl.timezone` | Approved defaults `0 0 9 * * ?`, `UTC` |
+| `etl.cutoff` | Approved fixed start `2026-11-25T00:00:00Z` |
+| `etl.batch-size` | 200-record CSV batches; connector auto-paging remains one-pass |
+| `etl.read-timeout` | 60-second ETL source read timeout; does not change PDF timeouts |
+| `etl.retry-count`, `etl.retry-delay-ms` | Maximum two connector connectivity retries, 30 seconds apart; no auth/query/file retry scope |
+
+The CSV can contain confidential/financial data. Per the approved local policy,
+there is **no masking, application-level storage encryption, or formula
+neutralization**. Opening formula-like cells in spreadsheet software is risky.
+Completed CSVs are retained until manual cleanup and are Git-ignored. Keep files
+local; do not commit or distribute them. Logs contain metadata, not field values.
+
+### Flow responsibilities and verification
+
+```mermaid
+flowchart LR
+    S["Local 09:00 UTC scheduler"] --> P["Opportunity CSV process"]
+    P --> Q["Salesforce System: describe + paged query"]
+    Q --> SF["Sandbox / OAuth JWT"]
+    P --> T["Owned temporary CSV / bounded batches"]
+    T --> F["Completed daily CSV / safe replacement"]
+    P --> L["Metadata-only logs"]
+    A["Existing Account PDF / MQ"] -. unchanged .-> SF
+```
+
+| File | Registered responsibility | Requirements |
+| --- | --- | --- |
+| `main/opportunity-export-scheduler-flow.xml` | `salesforce-opportunity-export-main`: scheduler, no-overlap, local guard | FR-30, ERR-34, DEP-30 |
+| `implementation/salesforce-opportunity-get-flow.xml` | `salesforce-opportunity-get-system`: describe/read only, one-pass iterator, bounded connectivity reconnection | FR-31, FR-34..35, ERR-30, SEC-30 |
+| `implementation/opportunity-export-flow.xml` | `opportunity-export-process`: temporary output, bounded CSV batches and safe publication | FR-32..34, DR-30..33, ERR-31..34 |
+| `config/file-config.xml` | Local file connector configuration only | FR-32, SEC-32 |
+| `implementation/common-opportunity-observability-subflows.xml` | Metadata-only export lifecycle logs | NFR-32 |
+| `implementation/common-error-handlers.xml` | Named `opportunity-export-error-handler`; PDF handler unchanged | ERR-31..33 |
+| `dwl/OpportunityCsv.dwl`, `dwl/opportunity-to-csv.dwl` | Field/query validation, typed cell conversion and batch CSV serialization | DR-30..33 |
+| `src/main/java/com/enterprise/etl/CsvFiles.java` | String-only temporary-file creation and atomic publication boundary; no internal JDK module opens | ERR-32, CON-32 |
+| `opportunity-export-flow-test-suite.xml` | Mocked Salesforce, real CSV round trip/replacement in disposable test directories | AC-34..38 |
+| `opportunity-export-disabled-test-suite.xml` | Nonlocal guard with enabled/started overrides; no source/file calls | AC-33, AC-42 |
+
+The pinned connector's `query` operation is deprecated but retained here to reuse
+its supported map-valued paging contract. No `FIELDS(ALL)` query is used: that
+shortcut has record limits. Unsupported fields, query/API limits, malformed
+values, or disk errors fail the export rather than silently excluding data.
+Live sandbox access, actual connector retry behavior, million-row/accumulated-
+volume memory/completeness and concurrent PDF load require separate validation.
+Small mocked fixtures are not scale evidence; existing release gates remain.
+
+**Verified on 2026-11-26:** five export tests and one nonlocal-guard test passed
+on cached **Mule EE 4.13.0 / MUnit 3.7.5**, including 401 rows across three batches,
+real atomic replacement, and invalid-value/write-failure preservation of old
+output. Existing PDF HTTPS regression: **3/3 passed**.
+Mule configuration parsing and Java compilation passed as part of these runs.
+The pinned Mule 4.9.4 / MUnit 3.7.0 pair is not verified.
+
+These are focused suite results, **not a passing overall build**: export-only
+application coverage was **18.89%**, guard-only **0.56%**, below the unchanged
+90% gates. The combined runner passed PDF tests but failed its second application
+deployment because the existing renderer remained closed after disposal. Run
+the Studio suites in separate fresh launch processes; that pre-existing lifecycle
+limitation and the full-suite coverage gate remain open.
+
 ## Build and verification
 
 Use JDK **17** for Mule. Maven 3.9.16 and the JDK 17 installed with Anypoint Code
 Builder were used for local validation; neither requires a global PATH change.
+
+### Local MUnit in Anypoint Studio (AC-18, SEC-05)
+
+The local setup creates ignored, test-only Studio run configurations, encrypted
+dummy properties, a localhost keystore and truststore, and a copy of the
+standalone renderer on the test classpath. Salesforce and MQ endpoints use the
+reserved `.invalid` domain; the tests mock external operations. Never use these
+fixtures for deployment or put real credentials in them.
+
+The fixtures are already generated on this machine. In Studio, refresh the
+project, open **Run > Run Configurations > MUnit**, select
+**MUnit Local - main-flow-test-suite**, and click **Run**. Use the corresponding
+`MUnit Local` configuration for another suite; the ordinary right-click launch
+is a different configuration and does not automatically receive these values.
+
+To set up another Windows workstation:
+
+1. Select the project's Mule runtime in Studio and use JDK 17. The standalone
+   renderer must already be built in `renderer/target` or installed in the local
+   Maven repository.
+2. Download the Java 17 Secure Properties Tool from the official
+   [MuleSoft documentation](https://docs.mulesoft.com/mule-runtime/latest/secure-configuration-properties)
+   to `.tools/secure-properties-tool-j17.jar`.
+3. Run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-munit-studio.ps1`
+   from this project directory, refresh the project in Studio, and use the run
+   configuration above. The execution-policy override applies only to that
+   PowerShell process. Set `JAVA_HOME` to JDK 17 if the script cannot find it.
+
+The generated configurations contain only disposable local test values and are
+Git-ignored. The script refuses to overwrite existing fixtures. Its selected
+localhost port must remain free; the self-signed certificate expires after one
+year. Regenerate the ignored fixtures and launch configurations together if
+they expire or need replacing. Do not copy their values to application or
+deployment configuration.
+
+The main suite was run in Studio on Mule 4.13.0: **3 tests passed, 0 failed**.
+The other generated Studio configurations have not been verified. This is not
+evidence that the pinned Mule 4.9.4 runtime or the coverage gate passes.
+
+For the Opportunity suite, use **MUnit Local -
+opportunity-export-flow-test-suite**. It uses the local profile but MUnit keeps
+the scheduler source disabled; Salesforce is mocked and CSV tests use disposable
+test directories, not the real output folder. On a machine that already has the
+working fixtures, add the new launch without replacing them:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup-munit-studio.ps1 -AddMissingLaunches
+```
+
+The separate **MUnit Local - opportunity-export-disabled-test-suite** launch
+uses the nonlocal `dev` profile with enabled/started overrides to verify the
+environment guard. This does not enable a live scheduler source in MUnit.
 
 From this directory:
 

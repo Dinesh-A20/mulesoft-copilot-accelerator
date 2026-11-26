@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce"
+      xmlns:email="http://www.mulesoft.org/schema/mule/email"
+      xmlns:os="http://www.mulesoft.org/schema/mule/os"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd
+        http://www.mulesoft.org/schema/mule/email http://www.mulesoft.org/schema/mule/email/current/mule-email.xsd
+        http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd">
+
+    <!-- Polls Salesforce for Accounts created since the connector's persisted watermark (CreatedDate). -->
+    <flow name="salesforce-account-created-main" maxConcurrency="1">
+        <salesforce:new-object-listener doc:name="On new Account"
+                                        config-ref="salesforce-jwt-config"
+                                        objectType="Account">
+            <scheduling-strategy>
+                <fixed-frequency frequency="${salesforce.listener.pollFrequencySeconds}" timeUnit="SECONDS"/>
+            </scheduling-strategy>
+        </salesforce:new-object-listener>
+
+        <set-variable doc:name="Start time" variableName="startTime" value="#[now()]"/>
+        <set-variable doc:name="Project Account" variableName="account"
+                      value="#[dwl::accountNotification::toNotificationAccount(payload)]"/>
+        <logger doc:name="Log started" level="INFO" category="salesforce-account-email-notifier"
+                message="#[output application/json indent=false --- {event: 'account-notification-started', correlationId: correlationId, applicationName: p('app.name'), environment: p('env'), flowName: 'salesforce-account-created-main', source: 'salesforce', accountId: vars.account.id, status: 'started'}]"/>
+
+        <flow-ref doc:name="Send notification" name="account-notification-send-process"/>
+
+        <logger doc:name="Log completed" level="INFO" category="salesforce-account-email-notifier"
+                message="#[output application/json indent=false --- {event: 'account-notification-completed', correlationId: correlationId, applicationName: p('app.name'), environment: p('env'), flowName: 'salesforce-account-created-main', source: 'salesforce', accountId: vars.account.id, status: vars.notificationStatus, durationMs: (now() - vars.startTime) as Number {unit: 'milliseconds'}}]"/>
+
+        <error-handler>
+            <on-error-continue doc:name="Dead-letter failed notification" type="ANY">
+                <flow-ref doc:name="Dead-letter" name="account-notification-dead-letter-process"/>
+            </on-error-continue>
+        </error-handler>
+    </flow>
+
+    <!-- Idempotent send: skips Accounts already notified, retries transient SMTP failures, then marks as sent. -->
+    <sub-flow name="account-notification-send-process">
+        <os:contains doc:name="Check already notified"
+                     key="#[vars.account.id]"
+                     objectStore="account-notification-sent-store"/>
+        <set-variable doc:name="Already notified" variableName="alreadyNotified" value="#[payload as Boolean]"/>
+        <choice doc:name="Already notified?">
+            <when expression="#[vars.alreadyNotified]">
+                <set-variable doc:name="Status skipped" variableName="notificationStatus" value="skipped-duplicate"/>
+                <logger doc:name="Log duplicate" level="WARN" category="salesforce-account-email-notifier"
+                        message="#[output application/json indent=false --- {event: 'account-notification-skipped', correlationId: correlationId, flowName: 'account-notification-send-process', accountId: vars.account.id, status: 'skipped-duplicate'}]"/>
+            </when>
+            <otherwise>
+                <set-variable doc:name="Build email" variableName="email"
+                              value="#[output application/java --- dwl::accountNotification::buildEmail(vars.account, p('salesforce.instanceUrl')) ++ {recipients: dwl::accountNotification::toRecipients(p('notification.email.to'))}]"/>
+                <until-successful doc:name="Retry SMTP"
+                                  maxRetries="${smtp.retry.maxRetries}"
+                                  millisBetweenRetries="${smtp.retry.millisBetweenRetries}">
+                    <email:send doc:name="Send Account email"
+                                config-ref="email-smtp-config"
+                                subject="#[vars.email.subject]"
+                                toAddresses="#[vars.email.recipients]">
+                        <email:body contentType="text/html" encoding="UTF-8">
+                            <email:content>#[vars.email.body]</email:content>
+                        </email:body>
+                    </email:send>
+                </until-successful>
+                <os:store doc:name="Mark as notified"
+                          key="#[vars.account.id]"
+                          objectStore="account-notification-sent-store">
+                    <os:value>#[now() as String]</os:value>
+                </os:store>
+                <set-variable doc:name="Status sent" variableName="notificationStatus" value="sent"/>
+            </otherwise>
+        </choice>
+    </sub-flow>
+
+    <sub-flow name="account-notification-dead-letter-process">
+        <choice doc:name="Replayable?">
+            <when expression="#[vars.account != null]">
+                <os:store doc:name="Store in DLQ"
+                          key="#[vars.account.id]"
+                          objectStore="account-notification-dlq-store">
+                    <os:value>#[output application/java --- {account: vars.account, correlationId: correlationId, errorType: (error.errorType.namespace default '') ++ ':' ++ (error.errorType.identifier default ''), failedAt: now() as String}]</os:value>
+                </os:store>
+                <set-variable doc:name="Status dead-lettered" variableName="notificationStatus" value="dead-lettered"/>
+            </when>
+            <otherwise>
+                <set-variable doc:name="Status rejected" variableName="notificationStatus" value="rejected-invalid-record"/>
+            </otherwise>
+        </choice>
+        <logger doc:name="Log failure" level="ERROR" category="salesforce-account-email-notifier"
+                message="#[output application/json indent=false --- {event: 'account-notification-failed', correlationId: correlationId, applicationName: p('app.name'), environment: p('env'), flowName: 'salesforce-account-created-main', accountId: vars.account.id, status: vars.notificationStatus, errorType: (error.errorType.namespace default '') ++ ':' ++ (error.errorType.identifier default ''), errorDescription: error.description}]"/>
+    </sub-flow>
+
+    <!-- Re-sends dead-lettered notifications; entries are removed only after a successful send. -->
+    <flow name="account-notification-replay-main" maxConcurrency="1">
+        <scheduler doc:name="Replay schedule">
+            <scheduling-strategy>
+                <fixed-frequency frequency="${notification.replay.frequencyMinutes}" timeUnit="MINUTES" startDelay="5"/>
+            </scheduling-strategy>
+        </scheduler>
+        <os:retrieve-all-keys doc:name="List dead-lettered Accounts" objectStore="account-notification-dlq-store"/>
+        <foreach doc:name="For each dead letter" collection="#[payload]">
+            <set-variable doc:name="DLQ key" variableName="dlqKey" value="#[payload]"/>
+            <try doc:name="Replay one">
+                <os:retrieve doc:name="Read dead letter"
+                             key="#[vars.dlqKey]"
+                             objectStore="account-notification-dlq-store"/>
+                <set-variable doc:name="Account" variableName="account" value="#[payload.account]"/>
+                <flow-ref doc:name="Send notification" name="account-notification-send-process"/>
+                <os:remove doc:name="Remove from DLQ" key="#[vars.dlqKey]" objectStore="account-notification-dlq-store"/>
+                <logger doc:name="Log replayed" level="INFO" category="salesforce-account-email-notifier"
+                        message="#[output application/json indent=false --- {event: 'account-notification-replayed', correlationId: correlationId, flowName: 'account-notification-replay-main', accountId: vars.dlqKey, status: vars.notificationStatus}]"/>
+                <error-handler>
+                    <on-error-continue doc:name="Keep in DLQ" type="ANY">
+                        <logger doc:name="Log replay failure" level="WARN" category="salesforce-account-email-notifier"
+                                message="#[output application/json indent=false --- {event: 'account-notification-replay-failed', correlationId: correlationId, flowName: 'account-notification-replay-main', accountId: vars.dlqKey, status: 'retained', errorType: (error.errorType.namespace default '') ++ ':' ++ (error.errorType.identifier default '')}]"/>
+                    </on-error-continue>
+                </error-handler>
+            </try>
+        </foreach>
+    </flow>
+</mule>

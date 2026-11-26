@@ -1,0 +1,67 @@
+{
+  "configs": [
+    "salesforce-account-email-notifier.xml",
+    "global-configs.xml"
+  ],
+  "secureProperties": [
+    "salesforce.secure.consumerKey",
+    "salesforce.secure.keystorePassword",
+    "smtp.secure.username",
+    "smtp.secure.password"
+  ],
+  "supportedJavaVersions": [],
+  "redeploymentEnabled": true,
+  "name": "com.enterprise.integrations:salesforce-account-email-notifier:1.0.0-SNAPSHOT",
+  "minMuleVersion": "4.9.0",
+  "requiredProduct": "MULE_EE",
+  "classLoaderModelLoaderDescriptor": {
+    "id": "mule",
+    "attributes": {
+      "exportedPackages": [],
+      "exportedResources": [
+        "dwl/accountNotification.dwl",
+        "global-configs.xml",
+        "keystores/README.md",
+        "log4j2.xml",
+        "properties/common.yaml",
+        "properties/dev.yaml",
+        "properties/local.yaml",
+        "properties/prod.yaml",
+        "properties/qa.yaml",
+        "salesforce-account-email-notifier.xml",
+        "dw/util/Math.dwl",
+        "dw/test/internal/Utils.dwl",
+        "dw/xml/Dtd.dwl",
+        "dw/System.dwl",
+        "dw/core/Binaries.dwl",
+        "dw/core/Types.dwl",
+        "dw/core/Numbers.dwl",
+        "dw/util/Diff.dwl",
+        "dw/test/Asserts.dwl",
+        "dw/core/URL.dwl",
+        "dw/util/Timer.dwl",
+        "dw/core/Dates.dwl",
+        "dw/Crypto.dwl",
+        "dw/extension/DataFormat.dwl",
+        "dw/core/Periods.dwl",
+        "dw/core/Objects.dwl",
+        "dw/util/Coercions.dwl",
+        "dw/core/Arrays.dwl",
+        "dw/util/Tree.dwl",
+        "dw/core/Strings.dwl",
+        "MunitTools.dwl",
+        "dw/module/Multipart.dwl",
+        "dw/Runtime.dwl",
+        "dw/Core.dwl",
+        "dw/util/Values.dwl"
+      ]
+    }
+  },
+  "bundleDescriptorLoader": {
+    "id": "mule",
+    "attributes": {}
+  },
+  "javaSpecificationVersions": [
+    "17"
+  ]
+}

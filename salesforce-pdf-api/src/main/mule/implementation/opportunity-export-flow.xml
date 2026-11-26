@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+  <flow name="opportunity-export-process" maxConcurrency="1" doc:description="FR-32..34 DR-30..33 ERR-31..34 NFR-30..33">
+    <set-variable variableName="etlStarted" value="#[now()]"/>
+    <set-variable variableName="etlRows" value="#[0]"/>
+    <set-variable variableName="etlTempOwned" value="#[false]"/>
+    <set-variable variableName="etlFileName" value="#['opportunities-' ++ ((vars.etlStarted &gt;&gt; |+00:00|) as String {format: 'yyyy-MM-dd'}) ++ '.csv']"/>
+    <flow-ref name="log-opportunity-start-process"/>
+    <flow-ref name="salesforce-opportunity-get-system"/>
+    <java:invoke-static class="com.enterprise.etl.CsvFiles" method="createTemporary(java.lang.String)" target="etlTempName">
+      <java:args>#[{directory: vars.etlOutputDirectory default p('etl.output-directory')}]</java:args>
+    </java:invoke-static>
+    <set-variable variableName="etlTempOwned" value="#[true]"/>
+    <file:write config-ref="file-opportunity-config" path="#[vars.etlTempName]" mode="OVERWRITE">
+      <file:content>#[((vars.etlFields map $.name) joinBy ',') ++ '\r\n']</file:content>
+    </file:write>
+    <foreach collection="#[vars.etlRecords]" batchSize="${etl.batch-size}">
+      <set-variable variableName="etlBatchRows" value="#[sizeOf(payload)]"/>
+      <ee:transform doc:description="DR-30..33 NFR-30: serialize only the current bounded batch">
+        <ee:message><ee:set-payload resource="dwl/opportunity-to-csv.dwl"/></ee:message>
+      </ee:transform>
+      <file:write config-ref="file-opportunity-config" path="#[vars.etlTempName]" mode="APPEND" doc:name="Append Opportunity CSV batch"/>
+      <set-variable variableName="etlRows" value="#[vars.etlRows + vars.etlBatchRows]"/>
+    </foreach>
+    <remove-variable variableName="etlRecords"/>
+    <java:invoke-static class="com.enterprise.etl.CsvFiles" method="publish(java.lang.String,java.lang.String)" target="etlPublished" doc:description="ERR-32 CON-32: atomic replacement, no destructive fallback">
+      <java:args>#[{temporary: vars.etlTempName, fileName: vars.etlFileName}]</java:args>
+    </java:invoke-static>
+    <set-variable variableName="etlTempOwned" value="#[false]"/>
+    <flow-ref name="log-opportunity-complete-process"/>
+    <set-payload value="#[{status: 'COMPLETED', fileName: vars.etlFileName, rows: vars.etlRows}]" mimeType="application/java"/>
+    <error-handler ref="opportunity-export-error-handler"/>
+  </flow>
+</mule>

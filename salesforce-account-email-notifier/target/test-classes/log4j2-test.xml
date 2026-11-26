@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Configuration>
+    <Appenders>
+        <Console name="Console" target="SYSTEM_OUT">
+            <PatternLayout pattern="%-5p %d [%t] %c: %m%n"/>
+        </Console>
+    </Appenders>
+    <Loggers>
+        <AsyncLogger name="salesforce-account-email-notifier" level="INFO"/>
+        <AsyncRoot level="WARN">
+            <AppenderRef ref="Console"/>
+        </AsyncRoot>
+    </Loggers>
+</Configuration>

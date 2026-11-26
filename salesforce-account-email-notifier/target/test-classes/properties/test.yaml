@@ -1,0 +1,21 @@
+# MUnit-only values. Dummy, non-functional credentials; tests never reach Salesforce or SMTP.
+salesforce:
+  instanceUrl: "https://example-org.my.salesforce.com"
+  secure:
+    consumerKey: "test-consumer-key"
+    keystorePassword: "test-keystore-password"
+  jwt:
+    principal: "integration.user@example.com"
+    tokenEndpoint: "https://test.salesforce.com/services/oauth2/token"
+    audienceUrl: "https://test.salesforce.com"
+
+smtp:
+  host: "smtp.example.com"
+  from: "mule-notifications@example.com"
+  secure:
+    username: "test-smtp-user"
+    password: "test-smtp-password"
+
+notification:
+  email:
+    to: "ops@example.com, owner@example.com"
