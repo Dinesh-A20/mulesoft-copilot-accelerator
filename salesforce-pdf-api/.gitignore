@@ -8,9 +8,3 @@ deployment/target/
 *.key
 settings-local.xml
 src/main/resources/properties/secure-*.properties
-# AC-18: generated, machine-local Studio MUnit fixtures; never package or commit.
-src/test/resources/munit-local/
-src/test/resources/renderer/renderer.jar
-MUnit Local - *.launch
-# SEC-32: confidential local Opportunity exports and owned temporary output.
-csv/

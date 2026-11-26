@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
-  <salesforce:sfdc-config name="salesforce-account-config" readTimeout="${salesforce.read-timeout}" doc:description="FR-01 SEC-03 NFR-20">
-    <salesforce:jwt-connection consumerKey="${secure::salesforce.secure.consumer-key}" keyStore="${salesforce.keystore}" storePassword="${secure::salesforce.secure.store-password}" certificateAlias="${salesforce.certificate-alias}" principal="${secure::salesforce.secure.principal}" tokenEndpoint="${salesforce.token-endpoint}" audienceUrl="${salesforce.audience}" connectionTimeout="${salesforce.connection-timeout}" loginRequestTimeout="${salesforce.login-timeout}" maxEntries="${salesforce.pool-size}" tlsContext="outbound-tls-config">
-      <reconnection/>
-    </salesforce:jwt-connection>
-  </salesforce:sfdc-config>
-</mule>

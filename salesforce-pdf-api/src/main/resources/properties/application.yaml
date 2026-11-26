@@ -2,11 +2,6 @@
 application:
   name: "salesforce-pdf-api"
 http:
-  tls:
-    alias: dummy
-    keystore: dummy
-  connector:
-    version: dummy
   host: "0.0.0.0"
   port: "8082"
 salesforce:
@@ -21,12 +16,3 @@ mq:
   client-timeout: "4000"
 sap:
   enabled: "false"
-# FR-30..35, ERR-30: shared ETL defaults; local activation overrides global defaults.
-etl:
-  schedule: "0 0 9 * * ?"
-  timezone: "UTC"
-  cutoff: "2026-11-25T00:00:00Z"
-  batch-size: "200"
-  retry-count: "2"
-  retry-delay-ms: "30000"
-  read-timeout: "60"
