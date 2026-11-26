@@ -8,9 +8,16 @@
     <http:request-connection protocol="HTTPS" host="localhost" port="${http.port}" tlsContext="loopback-test-tls"/>
   </http:request-config>
   <munit:test name="listener-to-real-apikit-document-path" description="AC-01 AC-18: enabled HTTPS source, real router, real flow-ref modules; policy validation remains external">
-    <munit:enable-flow-sources><munit:enable-flow-source value="http-account-document-main"/></munit:enable-flow-sources>
+    <munit:enable-flow-sources>
+      <munit:enable-flow-source value="http-account-document-main"/>
+      <munit:enable-flow-source value="get:\documents\(recordId):account-pdf-api-config"/>
+    </munit:enable-flow-sources>
     <munit:behavior>
-      <munit-tools:mock-when processor="salesforce:query"><munit-tools:then-return><munit-tools:payload value="#[readUrl('classpath://account-complete.json', 'application/json')]" mediaType="application/java"/></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="salesforce:query">
+        <munit-tools:then-return><munit-tools:variables>
+          <munit-tools:variable key="accounts" value="#[readUrl('classpath://account-complete.json', 'application/json')]"/>
+        </munit-tools:variables></munit-tools:then-return>
+      </munit-tools:mock-when>
       <munit-tools:mock-when processor="anypoint-mq:publish"><munit-tools:then-return><munit-tools:payload value="#['accepted']"/></munit-tools:then-return></munit-tools:mock-when>
       <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
     </munit:behavior>
@@ -21,13 +28,18 @@
     </munit:execution>
     <munit:validation>
       <munit-tools:assert-that expression="#[attributes.statusCode]" is="#[MunitTools::equalTo(200)]"/>
+      <munit-tools:assert-that expression="#[attributes.headers.'content-type']" is="#[MunitTools::equalTo('application/pdf')]"/>
       <munit-tools:assert-that expression="#[attributes.headers.'x-correlation-id']" is="#[MunitTools::equalTo('listener-test')]"/>
-      <munit-tools:assert-that expression="#[(payload as String {encoding: 'ISO-8859-1'}) startsWith '%PDF-']" is="#[MunitTools::equalTo(true)]"/>
+      <munit-tools:assert-that expression="#[attributes.headers.'cache-control']" is="#[MunitTools::equalTo('no-store')]"/>
+      <munit-tools:assert-that expression="#[%dw 2.0 output application/java --- (payload as String {encoding: 'ISO-8859-1'}) startsWith '%PDF-']" is="#[MunitTools::equalTo(true)]"/>
       <munit-tools:verify-call processor="salesforce:query" times="1"/>
     </munit:validation>
   </munit:test>
   <munit:test name="listener-invalid-id-error-contract" description="AC-03 AC-16 AC-17">
-    <munit:enable-flow-sources><munit:enable-flow-source value="http-account-document-main"/></munit:enable-flow-sources>
+    <munit:enable-flow-sources>
+      <munit:enable-flow-source value="http-account-document-main"/>
+      <munit:enable-flow-source value="get:\documents\(recordId):account-pdf-api-config"/>
+    </munit:enable-flow-sources>
     <munit:behavior>
       <munit-tools:mock-when processor="anypoint-mq:publish"><munit-tools:then-return/></munit-tools:mock-when>
       <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
@@ -37,12 +49,36 @@
         <http:headers>#[{Authorization: 'Bearer sanitized-test-token', client_id: 'test-client', client_secret: 'test-only-not-a-real-secret', 'X-Correlation-ID': 'invalid-test'}]</http:headers>
         <http:response-validator><http:success-status-code-validator values="400"/></http:response-validator>
       </http:request>
+      <set-variable variableName="errorBody" value="#[read(payload as String, 'application/json')]"/>
     </munit:execution>
     <munit:validation>
       <munit-tools:assert-that expression="#[attributes.statusCode]" is="#[MunitTools::equalTo(400)]"/>
-      <munit-tools:assert-that expression="#[payload.errorCode]" is="#[MunitTools::equalTo('INVALID_ACCOUNT_ID')]"/>
-      <munit-tools:assert-that expression="#[payload.status]" is="#[MunitTools::equalTo('FAILED')]"/>
+      <munit-tools:assert-that expression="#[attributes.headers.'content-type' startsWith 'application/json']" is="#[MunitTools::equalTo(true)]"/>
+      <munit-tools:assert-that expression="#[attributes.headers.'x-correlation-id']" is="#[MunitTools::equalTo('invalid-test')]"/>
+      <munit-tools:assert-that expression="#[vars.errorBody]" is="#[MunitTools::equalTo({status: 'FAILED', errorCode: 'INVALID_ACCOUNT_ID', message: 'Invalid Salesforce Account Id.', correlationId: 'invalid-test'})]"/>
       <munit-tools:verify-call processor="salesforce:query" times="0"/>
+    </munit:validation>
+  </munit:test>
+  <munit:test name="http-account-document-main-health-contract" description="AC-15: HTTPS health response with no downstream operations">
+    <munit:enable-flow-sources>
+      <munit:enable-flow-source value="http-account-document-main"/>
+      <munit:enable-flow-source value="get:\health:account-pdf-api-config"/>
+    </munit:enable-flow-sources>
+    <munit:behavior>
+      <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
+    </munit:behavior>
+    <munit:execution>
+      <http:request config-ref="loopback-test-client" method="GET" path="/health">
+        <http:headers>#[{Authorization: 'Bearer sanitized-test-token', client_id: 'test-client', client_secret: 'test-only-not-a-real-secret', 'X-Correlation-ID': 'health-test'}]</http:headers>
+      </http:request>
+    </munit:execution>
+    <munit:validation>
+      <munit-tools:assert-that expression="#[attributes.statusCode]" is="#[MunitTools::equalTo(200)]"/>
+      <munit-tools:assert-that expression="#[attributes.headers.'content-type' startsWith 'application/json']" is="#[MunitTools::equalTo(true)]"/>
+      <munit-tools:assert-that expression="#[attributes.headers.'x-correlation-id']" is="#[MunitTools::equalTo('health-test')]"/>
+      <munit-tools:assert-that expression="#[read(payload as String, 'application/json')]" is="#[MunitTools::equalTo({status: 'UP'})]"/>
+      <munit-tools:verify-call processor="salesforce:query" times="0"/>
+      <munit-tools:verify-call processor="anypoint-mq:publish" times="0"/>
     </munit:validation>
   </munit:test>
 </mule>

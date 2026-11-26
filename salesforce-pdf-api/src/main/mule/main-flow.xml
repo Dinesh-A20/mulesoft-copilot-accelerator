@@ -2,7 +2,9 @@
 <mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:java="http://www.mulesoft.org/schema/mule/java" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
   <flow name="http-account-document-main" doc:description="FR-10 FR-11 FR-12 SEC-01 SEC-02">
     <http:listener config-ref="http-api-listener-config" path="/*">
-      <http:response statusCode="#[vars.httpStatus default 200]"><http:headers>#[vars.outboundHeaders default {}]</http:headers></http:response>
+      <http:response statusCode="#[vars.httpStatus default 200]">
+        <http:headers>#[((vars.outboundHeaders default {}) -- ['X-Correlation-ID', 'Cache-Control']) ++ {'X-Correlation-ID': vars.requestCorrelation, 'Cache-Control': 'no-store'}]</http:headers>
+      </http:response>
       <http:error-response statusCode="#[vars.httpStatus default 500]"><http:body>#[payload]</http:body><http:headers>#[vars.outboundHeaders default {}]</http:headers></http:error-response>
     </http:listener>
     <set-variable variableName="startedMs" value="#[now() as Number {unit: 'milliseconds'}]"/>

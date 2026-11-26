@@ -468,23 +468,23 @@ generation, but blocking their applicable validation/deployment/release stages.
 
 ## 13. Traceability Matrix
 
-Generated artifacts are mapped below. Source presence is not execution evidence:
-the renderer tests passed locally, while Mule build/MUnit/coverage, policy,
-CloudHub and performance validation remain blocked or unexecuted. Existing
-requirements and acceptance criteria are unchanged.
+Generated artifacts are mapped below. Source presence is not execution evidence.
+Renderer tests and a focused HTTPS suite passed locally; full MUnit on the pinned
+runtime, the 90% coverage gate, gateway policies, CloudHub and performance
+validation remain open. Existing requirements and acceptance criteria are unchanged.
 
 | Requirements | Generated artifacts / registered responsibility | Tests / remaining verification | Documentation |
 | --- | --- | --- | --- |
-| FR-10..12, ERR-01..03, ERR-11..12 | `src/main/resources/api/account-pdf-api.raml`, `src/main/mule/main-flow.xml`, `http-config.xml` | `main-flow-test-suite.xml`; gateway policies unprovisioned, additional boundary tests required | `README.md`: API, security, main-to-business map |
+| FR-10..12, ERR-01..03, ERR-11..12 | `src/main/resources/api/account-pdf-api.raml`, `src/main/mule/main-flow.xml`, `http-config.xml` | `main-flow-test-suite.xml`: health, PDF and invalid-ID HTTPS tests passed on cached runtime; gateway policies unprovisioned, additional boundary tests required | `README.md`: API, security, main-to-business map |
 | FR-01..06, ERR-06..07, ERR-13 | `account-generate-document-flow.xml`, `salesforce-account-get-flow.xml`, `salesforce-config.xml` | `account-generate-document-flow-test-suite.xml`; in-flight composite Salesforce deadline not established | `README.md`: reliability/deadline release blocker |
 | DR-01..15, SEC-06 | `dwl/AccountDocument.dwl`, `account-to-document.dwl`, `document-to-html.dwl`, `templates/account-summary.html`, `RendererMain.java` | Mapping MUnit unexecuted; `RendererTest` passed for PDF text, escaping, pagination and resource restrictions | `README.md`: data rules and rendering |
 | ERR-04..10, ERR-14 | `common-validation-subflows.xml`, `common-error-handlers.xml`, `dwl/ErrorContract.dwl` | `common-validation-subflows-test-suite.xml`; renderer size/deadline/capacity Java tests passed; full status-path MUnit required | `README.md`: error matrix/diagram |
 | NFR-01..06 | `RuntimeSupport.java`, `IsolatedRenderer.java`, connector budget guards | `ChildRendererIT` passed locally; defined load/spike/degradation plan unexecuted | `README.md`: performance/release checklist |
 | NFR-07..09, SEC-07 | `common-observability-subflows.xml`, `dwl/structured-log.dwl`, `log4j2.xml` | Safe field projection inspected; actual metric/trace/redaction integration unverified | `README.md`: monitoring/security review |
 | SEC-01..05, DEP-01..05 | `global-config.xml`, `http-config.xml`, `salesforce-config.xml`, environment/secure properties, `deployment/pom.xml`, root workflows | External IAM/policy/certificate/secrets and deployment prerequisites remain blockers | `README.md`: configuration/deployment |
-| NFR-10, DEP-06..07, CON-01..05 | `pom.xml`, `renderer/pom.xml`, four MUnit suites, root build/promotion workflows | Java test evidence in README; 20 generated MUnit cases unexecuted; no measured coverage | `README.md`: exact evidence and blockers |
+| NFR-10, DEP-06..07, CON-01..05 | `pom.xml`, `renderer/pom.xml`, four MUnit suites, root build/promotion workflows | Java test evidence in README; focused HTTPS MUnit 3/3, 84.03% application coverage on cached Mule EE 4.13.0 / MUnit 3.7.5; pinned suite/gates not verified | `README.md`: exact evidence and blockers |
 | FR-07, CON-06 | `pdf-render-document-flow.xml`, `lifecycle-config.xml`, `RendererLifecycle.java`, `IsolatedRenderer.java`, `RendererMain.java`, standalone JAR packaging | `ChildRendererIT`: packaged PDF, expired deadline, unresponsive-child termination, sixth live render rejection; managed disposal/CloudHub still require runtime verification | `README.md`: Proposed ADR-001 |
-| FR-08..09 | `common-validation-subflows.xml`, `main-flow.xml` PDF-only route | Validation suite and real-listener suite unexecuted; no wrapper/link implementation | `README.md`: API and rejected alternatives |
+| FR-08..09 | `common-validation-subflows.xml`, `main-flow.xml` PDF-only route | Real-listener invalid-ID and PDF cases passed on cached runtime; validation suite unverified; no wrapper/link implementation | `README.md`: API and rejected alternatives |
 | FR-20..24, DR-20..22, ERR-20..23 | `common-event-subflows.xml`, `mq-publish-business-event-flow.xml`, `mq-config.xml`, `dwl/business-event.dwl` | MQ MUnit suite unexecuted; admission/idempotent release Java test passed; actual async/in-flight deadline unresolved | `README.md`: best effort and response independence |
 | FR-25..28, SEC-21 | `common-observability-subflows.xml`, `sap-enrichment-extension-flow.xml` unreferenced disabled boundary | `sap-extension-fails-closed` and no-SAP-call assertions generated; telemetry integration unverified | `README.md`: SAP and business events |
 | NFR-20..25, SEC-20, DEP-20..22, CON-20..21 | Connector configs, metadata/custom metrics, environment files, `.github/workflows/salesforce-pdf-build.yml`, `salesforce-pdf-promote.yml` | Pool behavior, monitoring destinations, extended coverage and release gates require execution/provisioning | `README.md`: five diagrams and release plan |
@@ -497,3 +497,4 @@ requirements and acceptance criteria are unchanged.
 | 1.1 | 2026-11-25 | Java support authorized; local child-JVM rendering direction selected, subject to explicit CloudHub verification | Renderer/bridge packaging, execution/capacity/deadlines, Java tests, Maven, CI, deployment documentation | Pending complete delta approval |
 | 1.2 | 2026-11-25 | Complete extended context explicitly approved: response-independent best-effort MQ, metadata events, disabled SAP boundary, dedicated validation, pools/reconnection, logging/metrics/dashboards and traceability; explicitly supersede only SAP/MQ exclusions | Context only at this stage; future flows, RAML, DW, MUnit, config, pipeline, diagrams/runbook | @Dinesh-A20 |
 | 1.2 | 2026-11-25 | Implementation artifact/defaults traceability populated; no requirement or acceptance-criterion changes. Renderer local tests passed; Mule/MUnit, in-flight connector deadlines and CloudHub remain explicit blockers | Application sources, tests, CI/deployment, README; approval status unchanged | Existing v1.2 approval |
+| 1.2 | 2026-11-25 | Recorded focused offline MUnit evidence and fixes for the approved PDF, health and error response contracts. Full pinned-runtime verification and coverage gate remain open | Main flow, error classification, MUnit suites, Maven/packaging configuration, README; approval status unchanged | Existing v1.2 approval |

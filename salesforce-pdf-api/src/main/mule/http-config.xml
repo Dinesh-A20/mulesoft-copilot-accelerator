@@ -3,7 +3,9 @@
   <tls:context name="inbound-tls-config" enabledProtocols="TLSv1.2,TLSv1.3" doc:description="SEC-04">
     <tls:key-store path="${http.tls.keystore}" type="PKCS12" alias="${http.tls.alias}" keyPassword="${secure::http.secure.key-password}" password="${secure::http.secure.store-password}"/>
   </tls:context>
-  <tls:context name="outbound-tls-config" enabledProtocols="TLSv1.2,TLSv1.3" doc:description="SEC-04"/>
+  <tls:context name="outbound-tls-config" enabledProtocols="TLSv1.2,TLSv1.3" doc:description="SEC-04">
+    <tls:trust-store/>
+  </tls:context>
   <http:listener-config name="http-api-listener-config" doc:description="FR-10 FR-11 SEC-04">
     <http:listener-connection host="${http.host}" port="${http.port}" protocol="HTTPS" tlsContext="inbound-tls-config"/>
   </http:listener-config>

@@ -254,26 +254,30 @@ X-Correlation-ID. Policy errors may bypass application handlers; test the
 configured gateway, not just flow-level MUnit. Never enable HTTP wire logging,
 default full-payload business-event tracking, or production debug logging.
 
+MUnit uses the Mule Enterprise runtime. The POM declares the `MuleRepository`
+plugin repository; Maven `settings.xml` must contain credentials under the same
+server ID. Do not put repository credentials in the POM or this project.
+
 ## Build and verification
 
-Use JDK **17** for Mule; the current machine only exposed JDK 27 during generation.
-Maven was missing, so a checksum-verified local Maven 3.9.11 was bootstrapped under
-ignored `.tools`; no global PATH changes were made.
+Use JDK **17** for Mule. Maven 3.9.16 and the JDK 17 installed with Anypoint Code
+Builder were used for local validation; neither requires a global PATH change.
 
 From this directory:
 
 ```powershell
-.\.tools\apache-maven-3.9.11\bin\mvn.cmd -B -ntp -f renderer\pom.xml install
-.\.tools\apache-maven-3.9.11\bin\mvn.cmd -B -ntp -s $env:MAVEN_SETTINGS -f pom.xml verify
+mvn -B -ntp -f renderer\pom.xml install
+mvn -B -ntp -s $env:MAVEN_SETTINGS -f pom.xml verify
 ```
 
-The second command requires authorized enterprise repositories plus isolated
-test configuration, supplied as Maven/MUnit properties. Tests must use loopback
-HTTPS, an ephemeral test certificate/truststore (`test.truststore`,
-`test.store-password`), a free `http.port`, `http.host=127.0.0.1`, test-only
-encrypted properties and inert connector configuration. Never provide real
-Salesforce/MQ credentials to tests. Downstream operations are mocked; policies
-are a separate integration verification. No private keys/certificates are checked in.
+The second command requires authorized Enterprise repository credentials in
+`settings.xml` (server ID `MuleRepository`) and isolated test configuration,
+supplied as Maven/MUnit system properties and files. Follow the build workflow
+for the exact test property names and secure fixture handling. Tests use loopback
+HTTPS, a test-only certificate/truststore, a free `http.port`, encrypted dummy
+properties and inert connector endpoints. Never provide real Salesforce/MQ
+credentials to tests. Downstream operations are mocked; gateway policies require
+separate integration verification. No private keys/certificates are checked in.
 
 The build workflow requires `MAVEN_SETTINGS_XML`, `MUNIT_MAVEN_OPTIONS`,
 `MUNIT_SECURE_PROPERTIES` (encrypted test-only values), `MUNIT_TLS_PKCS12_BASE64`
@@ -283,30 +287,54 @@ the test encryption key/store password/aliases, inert downstream endpoints and
 free listener port. Certificates must be test-only with localhost SANs; do not
 provide production keys or credentials. Secrets/settings are never artifact inputs.
 
+For an offline diagnostic when Mule EE 4.13.0 and MUnit 3.7.5 are already
+cached, use the same test-only fixtures and select the HTTPS suite:
+
+```powershell
+mvn -o -B -ntp test '-Dmule.version=4.13.0' '-Dmunit.version=3.7.5' `
+  '-Dmunit.test=main-flow-test-suite.xml' '-Dmule.tlsStores.filesystemLookup.enable=true' @fixtureOptions
+```
+
+In this example, `@fixtureOptions` is a PowerShell array of `-Dname=value`
+arguments: `mule.env`, `secure.file`, `secure.key`, `http.host` (`127.0.0.1`),
+`http.port` (free port), `http.tls.keystore`, `http.tls.alias`,
+`test.truststore`, `test.store-password`, `salesforce.keystore`,
+`salesforce.certificate-alias`, `salesforce.token-endpoint`, `salesforce.audience`,
+`mq.url`, and a dummy numeric `api.id`. Point the external connector URLs to an
+unused loopback port and the store paths to temporary test files. The filesystem
+flag lets this runtime read the temporary stores; TLS verification stays on.
+These runtime overrides are for diagnostics only, not a change to the pinned
+runtime or MUnit version.
+
 ### Actual evidence
 
 - Renderer Maven `install`: **passed**, 6 unit tests + 4 packaged-child integration
-  tests, zero failures/skips, compiled with `--release 17`, executed on JDK 27.
-- Inspected real PDF text/pages and packaged-font accents; exercised packaged child output, expired deadline,
-  unresponsive-child termination and sixth-render fail-fast admission.
-- XML parsing: 25 source/build documents passed; artifact JSON parsed;
-  18 registered names were unique and 31 references resolved.
-- Mule Maven `validate`: initially failed because the template plugin 4.6.2 does
-  not exist. Corrected to published 4.6.1.
-- Subsequent Mule dependency collection failed with `Network is unreachable`
-  for required dependencies. **No passing Mule build, MUnit execution, listener
-  request, measured coverage or CloudHub deployment is claimed.**
-- IDE project validator returned an internal error; not treated as success.
-- Final offline Mule `verify` also failed on uncached plugin dependencies, before
-  tests could execute. It did not bypass the earlier networking blocker.
+  tests, zero failures/skips, compiled and executed on JDK 17.
+- Mule `process-classes`: **passed** with the pinned connector schemas after
+  correcting the MQ socket-property group and outbound JVM-default trust store.
+- Mule `package`: **passed with tests explicitly skipped**; this verifies packaging
+  only and is not MUnit or runtime evidence.
+- Full `verify`: blocked before test execution because the local Maven settings
+  lack `MuleRepository` credentials; fetching the Mule EE 4.9.4 runtime returned
+  HTTP 401. The required server credentials must be provisioned locally and in
+  the GitHub `MAVEN_SETTINGS_XML` secret.
+- Offline diagnostic: **3/3 MUnit HTTPS tests passed** on cached Mule EE 4.13.0
+  and MUnit 3.7.5. Real listener and APIKit routes returned health `200` with
+  `{"status":"UP"}`, invalid Account ID `400` with the expected JSON error, and
+  document `200 application/pdf` with the `%PDF-` signature, correlation header
+  and `Cache-Control: no-store`. The Salesforce query, MQ publish and metrics
+  were mocked. No live credentials or deployment were used.
+- The focused run reached **84.03% application coverage** and Maven correctly
+  failed the 90% gate. An earlier combined run on the cached versions hit
+  MUnit configuration and renderer lifecycle startup errors in the other suites;
+  those suites and the pinned-runtime run are not verified.
 - Java tests do not establish MUnit coverage. Configured MUnit gates demand
   90% application/resource/each-flow processor coverage. These are not a proxy
   for percent of flows executed: inspect actual JSON for that separate metric.
 
-All test suites are deterministic intent, not evidence until executed. MUnit
-includes real internal orchestration and enabled-listener HTTP tests with external
-system mocks. Re-run across the supported schemas/JDK and repair failures before
-merge. Additional gateway/load/degradation/cancellation cases remain required.
+See `target/surefire-reports/` for the focused run's per-test results. Re-run
+all suites on the pinned runtime and repair failures before merge. Additional
+gateway/load/degradation/cancellation cases remain required.
 
 ## Deployment, promotion and rollback (DEP-01..04, DEP-20..22)
 

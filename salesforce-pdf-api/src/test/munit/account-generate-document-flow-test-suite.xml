@@ -15,7 +15,9 @@
   <munit:test name="document-real-process-path" description="AC-01 AC-18 AC-20 AC-23: actual business modules and renderer; only external boundaries mocked">
     <munit:behavior>
       <munit-tools:mock-when processor="salesforce:query">
-        <munit-tools:then-return><munit-tools:payload value="#[readUrl('classpath://account-complete.json', 'application/json')]" mediaType="application/java"/></munit-tools:then-return>
+        <munit-tools:then-return><munit-tools:variables>
+          <munit-tools:variable key="accounts" value="#[readUrl('classpath://account-complete.json', 'application/json')]"/>
+        </munit-tools:variables></munit-tools:then-return>
       </munit-tools:mock-when>
       <munit-tools:mock-when processor="anypoint-mq:publish"><munit-tools:then-return><munit-tools:payload value="#['accepted']"/></munit-tools:then-return></munit-tools:mock-when>
       <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
@@ -30,7 +32,7 @@
     <munit:execution><flow-ref name="initialize-document-test"/><flow-ref name="account-generate-document-process"/></munit:execution>
     <munit:validation>
       <munit-tools:assert-that expression="#[vars.httpStatus]" is="#[MunitTools::equalTo(200)]"/>
-      <munit-tools:assert-that expression="#[payload as String {encoding: 'ISO-8859-1'} startsWith '%PDF-']" is="#[MunitTools::equalTo(true)]"/>
+      <munit-tools:assert-that expression="#[%dw 2.0 output application/java --- (payload as String {encoding: 'ISO-8859-1'}) startsWith '%PDF-']" is="#[MunitTools::equalTo(true)]"/>
       <munit-tools:assert-that expression="#[vars.outboundHeaders.'Content-Type']" is="#[MunitTools::equalTo('application/pdf')]"/>
       <munit-tools:verify-call processor="salesforce:query" times="1"/>
       <munit-tools:verify-call processor="flow-ref" times="0"><munit-tools:with-attributes><munit-tools:with-attribute attributeName="name" whereValue="sap-enrichment-disabled-extension"/></munit-tools:with-attributes></munit-tools:verify-call>
@@ -38,7 +40,11 @@
   </munit:test>
   <munit:test name="salesforce-account-not-found" description="AC-04" expectedErrorType="APP:NOT_FOUND">
     <munit:behavior>
-      <munit-tools:mock-when processor="salesforce:query"><munit-tools:then-return><munit-tools:payload value="#[[]]" mediaType="application/java"/></munit-tools:then-return></munit-tools:mock-when>
+      <munit-tools:mock-when processor="salesforce:query">
+        <munit-tools:then-return><munit-tools:variables>
+          <munit-tools:variable key="accounts" value="#[[]]"/>
+        </munit-tools:variables></munit-tools:then-return>
+      </munit-tools:mock-when>
       <munit-tools:mock-when processor="custom-metrics:send"><munit-tools:then-return/></munit-tools:mock-when>
     </munit:behavior>
     <munit:execution><flow-ref name="initialize-document-test"/><flow-ref name="account-generate-document-process"/></munit:execution>
@@ -60,7 +66,7 @@
   <munit:test name="health-has-no-downstream" description="AC-15">
     <munit:execution><flow-ref name="health-get-process"/></munit:execution>
     <munit:validation>
-      <munit-tools:assert-that expression="#[payload]" is="#[MunitTools::equalTo({status: 'UP'})]"/>
+      <munit-tools:assert-that expression="#[read(payload as String, 'application/json')]" is="#[MunitTools::equalTo({status: 'UP'})]"/>
       <munit-tools:verify-call processor="salesforce:query" times="0"/>
       <munit-tools:verify-call processor="anypoint-mq:publish" times="0"/>
     </munit:validation>

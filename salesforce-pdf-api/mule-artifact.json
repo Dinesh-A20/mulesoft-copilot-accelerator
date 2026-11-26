@@ -1,6 +1,6 @@
 {
-  "minMuleVersion": "4.9.4",
-  "javaSpecificationVersions": ["17"],
-  "exportedPackages": ["com.enterprise.pdf"],
-  "exportedResources": ["renderer/renderer.jar"]
+    "minMuleVersion": "4.9.4",
+    "exportedPackages": ["com.enterprise.pdf"],
+    "javaSpecificationVersions": ["17"],
+    "exportedResources": ["renderer/renderer.jar", "renderer-lifecycle.xml"]
 }

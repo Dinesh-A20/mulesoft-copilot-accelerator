@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:anypoint-mq="http://www.mulesoft.org/schema/mule/anypoint-mq" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/anypoint-mq http://www.mulesoft.org/schema/mule/anypoint-mq/current/mule-anypoint-mq.xsd">
   <anypoint-mq:config name="mq-business-event-config" doc:description="FR-23 SEC-20 ERR-20">
-    <anypoint-mq:connection url="${mq.url}" clientId="${secure::mq.secure.client-id}" clientSecret="${secure::mq.secure.client-secret}" connectionTimeout="${mq.connection-timeout}" clientTimeout="${mq.client-timeout}" tlsContext="outbound-tls-config">
+    <anypoint-mq:connection url="${mq.url}" clientId="${secure::mq.secure.client-id}" clientSecret="${secure::mq.secure.client-secret}" tlsContext="outbound-tls-config">
       <reconnection failsDeployment="false"/>
+      <anypoint-mq:tcp-client-socket-properties connectionTimeout="${mq.connection-timeout}" clientTimeout="${mq.client-timeout}"/>
     </anypoint-mq:connection>
   </anypoint-mq:config>
 </mule>
