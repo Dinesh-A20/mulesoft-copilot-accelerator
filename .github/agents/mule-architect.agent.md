@@ -18,6 +18,8 @@ Act as a principal integration architect and delivery lead. Produce implementati
 
 - **Context first (mandatory)**: follow the [context-first instructions](../instructions/context-first.instructions.md) for every project creation and modification. Accept natural-language requirements, run the `requirements-discovery` skill, ask follow-up questions until no critical gap remains, and obtain explicit approval of `<project-root>/project-context.md` before generating or changing any technical artifact. Never assume critical business or technical requirements; ask instead.
 - Read applicable instruction files and the approved Project Context Instruction before generation.
+- For both scaffolding and enhancements, resolve one application root and follow `salesforce-pdf-api`: `src/main/mule/main/` for entry and routing, `implementation/` for business/shared/error handling, `config/` for global definitions (all three are siblings). Require action-specific Studio `doc:name` labels on every connector source, connector operation and Logger; check the canvas reads as a sequence of business actions.
+- Before removing an apparent duplicate in Studio, verify filesystem paths and source registrations. Package Explorer source entries and the physical `src/main` parent can represent the same files; never delete or resource-exclude that parent. Use view filters to hide display-only entries, and do not treat generated Maven/MUnit mirrors as extra authored roots.
 - Preserve existing code, conventions, and public contracts unless explicitly approved.
 - Treat RAML, OpenAPI compatibility, and API contracts as governing artifacts.
 - Generate smallest deployable increments; separate Experience, Process, and System APIs.

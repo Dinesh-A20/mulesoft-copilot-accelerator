@@ -41,6 +41,8 @@ description: Orchestrates requirements analysis through architecture, contracts,
 - Security and performance reports
 
 ## Validation Rules
+- Check the generated or enhanced app against `salesforce-pdf-api`: one authored Mule root with `main/`, `implementation/`, and `config/`. Require action-specific connector and Logger `doc:name` labels and MUnit evidence for the changed orchestration.
+- Distinguish physical duplicate source trees from Studio source-folder entries and their physical parents. Never delete `src/main` or exclude required source resources to simplify Package Explorer; use view filters for presentation-only requests and preserve normal Maven/MUnit build mirrors.
 - Generation does not start until the Project Context Instruction is `Approved`; no critical requirement is assumed.
 - Every requirement ID maps to implementation, tests, and documentation, or to an explicit user-approved gap; no artifact implements untraced behavior.
 - Project builds and MUnit suite completes or failure evidence is returned.

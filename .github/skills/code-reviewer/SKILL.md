@@ -26,6 +26,7 @@ description: Reviews Mule XML, DataWeave, RAML, Maven, tests, and CI for enterpr
 - Verification commands
 
 ## Validation Rules
+- Reject a second authored Mule source root, misplaced new or modified modules, or default/missing Studio `doc:name` labels on connector sources, operations, or Loggers. Compare placements with `salesforce-pdf-api`; ignore Maven/MUnit build mirrors when counting roots.
 - Block when the Project Context Instruction is missing or not `Approved`, when changed behavior is not covered by it, or when flows, tests, configuration, or documentation lack requirement traceability.
 - Findings reference exact files and behavior.
 - No unrelated changes are included.
