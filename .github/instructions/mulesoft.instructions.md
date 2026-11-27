@@ -24,7 +24,7 @@ Maven projects, Mule configurations, flows, connectors, configuration properties
 ## Naming Conventions
 - Applications: lowercase kebab-case.
 - Flows: `source-operation-purpose-main`.
-- Business flows: `resource-operation-process`.
+- Business orchestration: `resource-operation-process`; system integrations: `system-resource-operation-system`. Preserve existing registered names.
 - Subflows: `operation-purpose-process`.
 - XML files: `main-flow.xml`, `<resource>-<operation>-flow.xml`, `common-<capability>-subflows.xml`, and `<technology>-config.xml`.
 - Global configuration names: `<technology>-<purpose>-config`.
@@ -33,6 +33,9 @@ Maven projects, Mule configurations, flows, connectors, configuration properties
 
 ## Mandatory modular project layout
 
+Use [salesforce-pdf-api](../../salesforce-pdf-api/src/main/mule/) as the structural reference, not as a source of application-specific endpoints, connectors, or data. Resolve the application's own Maven root before scaffolding. Under its single `src/main/mule`, place entry points in `main/`, business flows, shared subflows and named error handlers in `implementation/`, and configuration-only XML in `config/`. Apply the same placement when adding or changing a flow in an existing app.
+
+- **Studio display names:** Give every connector source and operation a concise `doc:name` describing its action and business object or destination (e.g. `Query exportable Salesforce opportunities`, `Write opportunity CSV`). Give every Logger a `doc:name` stating the exact event it records (e.g. `Log opportunity export row count`). Reject defaults such as `Query`, `Write`, `Logger`, or `Logger 2`. Bind `doc` to `http://www.mulesoft.org/schema/mule/documentation`; do not invent a `displayName` XML attribute or rename registered elements to label the canvas.
 - Use one `main-flow.xml` per application for the primary entry/orchestration flow and APIKit resource routing flows. Keep these flows thin: accept and route the event, then invoke business functionality through `flow-ref` rather than implementing it inline.
 - Place each business flow in its own dedicated XML file, with one top-level `<flow>` or non-shared business `<sub-flow>` per file. Do not combine independent operations into a single business XML file.
 - For APIKit, keep the listener, router, and generated resource flows together in `main-flow.xml`; do not create separate route XML files. Preserve APIKit's required registered resource flow names. Each resource flow delegates through `flow-ref` to the corresponding business flow in its own XML file.
@@ -49,13 +52,18 @@ Example layout (business files repeat per operation):
 src/
   main/
     mule/
-      main-flow.xml
-      accounts-get-by-id-flow.xml
-      common-validation-subflows.xml
-      common-error-handlers.xml
-      global-config.xml
-      http-config.xml
-      object-store-config.xml
+      main/
+        main-flow.xml
+        opportunity-export-scheduler-flow.xml
+      implementation/
+        opportunity-export-flow.xml
+        salesforce-opportunity-get-flow.xml
+        common-validation-subflows.xml
+        common-error-handlers.xml
+      config/
+        global-config.xml
+        http-config.xml
+        salesforce-config.xml
     resources/
       api/
       dwl/
@@ -67,7 +75,9 @@ src/
     resources/
 ```
 
-Keep runtime XML files directly under `src/main/mule` by default; do not assume nested XML directories are automatically loaded. Ensure every required XML file is loaded by the application, updating `mule-artifact.json` when it explicitly lists `configs`. Validate this through the Mule Maven build and MUnit, not just a directory listing.
+Reuse the existing source root; never append `src/main/mule` to a path already ending in it, register an IDE alias as another root, or scaffold from a packaged source copy under `target/`. Before and after generation, check the authored tree and any IDE source-root entries for duplicates within this application; exclude build outputs and independent Maven applications. If a second authored tree exists, compare contents and references before moving or deleting anything. Update `mule-artifact.json` when it explicitly lists `configs`, and verify the nested modules load through the Mule Maven build and MUnit. Do not copy them back to the root to fix loading.
+
+Studio's Package Explorer can show source entries such as `src/main/java` alongside the physical `src` > `main` folder containing those same files. This is not a second source tree. Resolve the displayed entries to filesystem paths and inspect `.classpath` and `.project` before cleanup. Never delete the physical parent, exclude it through Eclipse resource filters, or remove valid source entries to hide this presentation. Use a Package Explorer view filter when the user wants fewer visible entries. Maven/MUnit packaged source mirrors are normal build outputs, may be recreated, and must not be deleted merely to fix the IDE presentation.
 
 Before modifying a business flow co-located with other flows, extract the touched business flow into its dedicated file and update directly required orchestration/configuration boundaries and references. Move affected APIKit resource routing flows into `main-flow.xml`. Remove old definitions and update explicit config lists rather than duplicating them. Preserve public contracts, registered names, event variables, error scopes, transactions, concurrency, and source behavior. Do not bulk-refactor unrelated legacy functionality; report any remaining legacy layout outside the changed scope.
 

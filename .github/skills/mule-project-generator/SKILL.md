@@ -12,6 +12,7 @@ description: Scaffolds Maven Mule 4 projects with modular flows, global configs,
 ## Workflow Steps
 1. Confirm `<project-root>/project-context.md` is `Approved`; derive artifact ID, domain, layer, API version, and runtime requirements from it. Stop and return to requirements-discovery if it is missing, draft, or does not cover the request.
 2. Generate Maven project and mule-artifact metadata.
+   Resolve paths from the target `pom.xml`, not the current editor folder. Reuse exactly one authored `src/main/mule` root; generate entries in `main/`, business/shared/error modules in `implementation/`, and globals in `config/`, including when enhancing a legacy application. Never clone `target/` or append a second source path.
 3. Inventory filenames, registered flow/subflow names, responsibilities, and references using the [mandatory modular project layout](../../instructions/mulesoft.instructions.md#mandatory-modular-project-layout). Scaffold one thin `main-flow.xml` containing APIKit routing flows, dedicated business-flow XML files, capability-grouped common subflows, and separate configuration/error-handler files.
 4. Add secure/environment properties and APIKit routes.
 5. Add connector dependencies and policy configuration placeholders.
@@ -30,6 +31,8 @@ description: Scaffolds Maven Mule 4 projects with modular flows, global configs,
 - Project builds on supported Mule and JDK versions.
 - No credential or environment hostname is hardcoded.
 - Flow references resolve; connector configs exist.
+- Verify apparent Studio duplicates against physical paths and `.classpath` before cleanup. A physical `src/main` parent and its source-folder entries refer to the same files; retain both the directory and valid source entries. Address display-only duplication through Package Explorer view filters, not deletion or Eclipse resource exclusion.
+- Inspect each generated connector source, operation and Logger for a meaningful Studio `doc:name`: identify what it reads, writes, publishes, or logs. Generic component names do not pass review.
 - The mandatory layout applies to all new projects and every new or modified flow. Extract touched business flows from shared legacy XML files, consolidate affected APIKit resource flows in `main-flow.xml`, remove old definitions, and preserve behavior without refactoring unrelated functionality.
 - Each business flow has its own XML file; shared subflows may be grouped by capability. Keep APIKit resource flows together with the listener/router in `main-flow.xml`, not in separate route files. Configuration files contain no business logic.
 - APIKit routes in `main-flow.xml` delegate to their business modules through `flow-ref`; preserve generated registered names and use filesystem-safe business filenames. Reference names, not filenames, and do not call unrelated operations from main.

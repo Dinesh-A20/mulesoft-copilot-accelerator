@@ -61,7 +61,8 @@ Changes not covered by the approved context trigger delta discovery and re-appro
 Every new project and every new or modified flow must follow the
 [modular project standard](.github/instructions/mulesoft.instructions.md#mandatory-modular-project-layout):
 
-- One thin `main-flow.xml` for entry, APIKit resource routing, and orchestration.
+- Match the [reference application](salesforce-pdf-api/src/main/mule/): one authored `src/main/mule`, with `main/` for entry flows and APIKit routing, `implementation/` for business flows, shared subflows and error handlers, and `config/` for global definitions.
+- Label every connector source, operation and Logger with a specific action-oriented Studio display name (`doc:name`).
 - One dedicated XML file per business flow; APIKit routing flows stay in `main-flow.xml` rather than separate route files.
 - Shared subflows grouped by reusable capability; named common error handlers kept separately.
 - Configuration-only XML files, with RAML, DataWeave, properties, and test assets in their own resource folders.

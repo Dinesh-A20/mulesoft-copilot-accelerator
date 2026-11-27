@@ -14,6 +14,7 @@ MUnit suites, mocks, assertions, fixtures, test data, coverage, and CI test beha
 - Mock external systems deterministically.
 - Assert status, headers, payload contract, variables, and error type.
 - Use test resources separate from runtime resources.
+- Load the application's single authored `src/main/mule` tree (`main/`, `implementation/`, `config/`) in MUnit. Do not copy production XML into the suite or add a second source root to make tests pass.
 - Enforce coverage thresholds in CI.
 - Never access production systems from tests.
 - For new or modified flows, test the [mandatory modular layout's](./mulesoft.instructions.md#mandatory-modular-project-layout) orchestration path through the real business modules, without mocking internal `flow-ref` calls in that integration test. Verify the requested APIKit route delegates to its business flow without invoking unrelated operations; external systems remain mocked.

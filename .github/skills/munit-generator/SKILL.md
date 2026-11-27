@@ -28,6 +28,7 @@ description: Generates MUnit suites for success, failure, timeout, edge, retry, 
 - Maven test command
 
 ## Validation Rules
+- Load the actual `main/`, `implementation/`, and `config/` modules from the application's single source root. Keep suites in `src/test/munit` and fixtures in `src/test/resources`; never scaffold another `src/main/mule` for tests.
 - Derive expected results from the approved Project Context Instruction's acceptance criteria, never from the implementation; name or describe each test with the requirement/acceptance IDs it verifies, and cover every acceptance criterion.
 - Tests do not call production dependencies.
 - Use MUnit, Mule connectors, and DataWeave for test clients and assertions; do not generate standalone scripts in other languages. Report an unavailable runtime or tool as a blocker.

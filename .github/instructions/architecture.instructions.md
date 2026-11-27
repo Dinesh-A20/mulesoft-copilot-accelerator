@@ -22,6 +22,7 @@ Architecture decisions, API decomposition, application boundaries, integrations,
 - Require the [mandatory modular Mule project layout](./mulesoft.instructions.md#mandatory-modular-project-layout): one `main-flow.xml` containing the listener and APIKit routing flows, one business flow per dedicated XML file, grouped reusable common subflows, configuration-only XML files, and `flow-ref` delegation. Apply this to new projects and every new or modified flow.
 
 ## Naming Conventions
+- Use the reference application's `main/`, `implementation/`, and `config/` placement under one Mule source root. Keep independent sources independent and extract reusable behavior by capability, not into a generic utilities flow.
 - API names: `{domain}-{layer}-{resource}` (for example, `customer-process-api`).
 - Repository/artifact IDs use lowercase kebab-case.
 - Entry/orchestration flow names: `source-operation-purpose-main`; business flow names: `resource-operation-process`. Use the XML and shared-subflow naming conventions in the mandatory modular layout.

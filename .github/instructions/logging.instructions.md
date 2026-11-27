@@ -18,6 +18,7 @@ Logging categories, correlation, metrics, alarms, tracing, audit events, and sen
 - Use Anypoint monitoring/custom metrics for operational SLIs.
 
 ## Naming Conventions
+- Every Logger needs a Studio display name (`doc:name`) that identifies the action or outcome being recorded, for example `Log Salesforce query timeout`. The label is static, not the log message; keep payloads, credentials and record identifiers out of both.
 - Logger prefixes use stable kebab-case identifiers.
 - Metric names use dot notation.
 - Audit event names use past-tense business verbs.
