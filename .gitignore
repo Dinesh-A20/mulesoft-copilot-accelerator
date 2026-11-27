@@ -1,3 +1,6 @@
 /target/
 
 /examples/salesforce-account-excel-export/
+
+/services/
+/examples/
